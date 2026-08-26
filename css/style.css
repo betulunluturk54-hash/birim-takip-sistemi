@@ -3533,3 +3533,419 @@ body.dark-mode .user-dropdown-item:hover {
     }
 
 }
+/* =========================================================
+   EVRAK FORMU - PROFESYONEL TASARIM
+========================================================= */
+
+#evrakFormCard {
+    margin-bottom: 24px;
+}
+
+#evrakFormCard .card-title-area {
+    margin-bottom: 24px;
+}
+
+#evrakFormCard .card-title-area h2 {
+    margin: 0 0 6px;
+    font-size: 20px;
+    font-weight: 750;
+    letter-spacing: -0.3px;
+    color: var(--text);
+}
+
+#evrakFormCard .card-title-area p {
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 13px;
+}
+
+
+/* =========================================================
+   FORM ALANLARI
+========================================================= */
+
+#evrakFormCard label {
+    color: var(--text);
+    font-size: 13px;
+}
+
+#evrakFormCard input[type="text"],
+#evrakFormCard input[type="date"],
+#evrakFormCard select,
+#evrakFormCard textarea {
+    box-sizing: border-box;
+    width: 100%;
+    border: 1px solid #dfe5ee !important;
+    background: #ffffff;
+    color: #1d2939;
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition:
+        border-color .18s ease,
+        box-shadow .18s ease,
+        background-color .18s ease;
+}
+
+#evrakFormCard input[type="text"],
+#evrakFormCard input[type="date"],
+#evrakFormCard select {
+    min-height: 44px;
+    padding: 0 13px !important;
+}
+
+#evrakFormCard textarea {
+    padding: 13px !important;
+    line-height: 1.5;
+}
+
+#evrakFormCard input[type="text"]:focus,
+#evrakFormCard input[type="date"]:focus,
+#evrakFormCard select:focus,
+#evrakFormCard textarea:focus {
+    border-color: #9bb8ef !important;
+    box-shadow:
+        0 0 0 3px rgba(53, 109, 243, .09);
+}
+
+
+/* =========================================================
+   PERSONEL SELECT
+========================================================= */
+
+#evrakFormCard select {
+    appearance: auto;
+    cursor: pointer;
+}
+
+
+/* =========================================================
+   DOSYA YÜKLEME ALANI
+========================================================= */
+
+.evrak-file-area {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    gap: 16px;
+
+    width: 100%;
+    min-height: 112px;
+
+    box-sizing: border-box;
+
+    padding: 18px 20px;
+
+    border: 1.5px dashed #cbd5e4;
+    border-radius: 14px;
+
+    background:
+        linear-gradient(
+            180deg,
+            #fbfcfe 0%,
+            #f7f9fc 100%
+        );
+
+    cursor: pointer;
+
+    transition:
+        border-color .2s ease,
+        background-color .2s ease,
+        box-shadow .2s ease,
+        transform .2s ease;
+}
+
+.evrak-file-area:hover {
+    border-color: #8eace7;
+
+    background:
+        linear-gradient(
+            180deg,
+            #f8fbff 0%,
+            #f1f6ff 100%
+        );
+
+    box-shadow:
+        0 6px 18px rgba(53, 109, 243, .08);
+
+    transform: translateY(-1px);
+}
+
+
+/* =========================================================
+   DOSYA İKONU
+========================================================= */
+
+.evrak-file-icon {
+    width: 50px;
+    height: 50px;
+
+    flex-shrink: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 13px;
+
+    background: #eaf1ff;
+    color: #3975e8;
+
+    box-shadow:
+        inset 0 0 0 1px rgba(57, 117, 232, .08);
+}
+
+.evrak-file-icon svg {
+    width: 23px;
+    height: 23px;
+
+    stroke-width: 2;
+}
+
+
+/* =========================================================
+   DOSYA METNİ
+========================================================= */
+
+.evrak-file-text {
+    min-width: 0;
+    flex: 1;
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 5px;
+}
+
+.evrak-file-text strong {
+    color: #243247;
+
+    font-size: 13px;
+    font-weight: 750;
+}
+
+.evrak-file-text span {
+    color: #7b8798;
+
+    font-size: 11px;
+
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+
+/* =========================================================
+   DOSYA SEÇ BUTONU
+========================================================= */
+
+.evrak-file-button {
+    flex-shrink: 0;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-height: 38px;
+
+    padding: 0 15px;
+
+    border: 1px solid #cddaf0;
+    border-radius: 9px;
+
+    background: #ffffff;
+    color: #3975e8;
+
+    font-size: 12px;
+    font-weight: 700;
+
+    box-shadow:
+        0 2px 6px rgba(53, 109, 243, .06);
+
+    transition:
+        background-color .18s ease,
+        border-color .18s ease,
+        color .18s ease,
+        transform .18s ease,
+        box-shadow .18s ease;
+}
+
+.evrak-file-area:hover .evrak-file-button {
+    background: #3975e8;
+    border-color: #3975e8;
+    color: #ffffff;
+
+    transform: translateY(-1px);
+
+    box-shadow:
+        0 5px 12px rgba(53, 109, 243, .18);
+}
+
+
+/* =========================================================
+   DOSYA SEÇİLDİĞİNDE
+========================================================= */
+
+.evrak-file-area.file-selected {
+    border-color: #7bc69a;
+
+    background:
+        linear-gradient(
+            180deg,
+            #f8fff9 0%,
+            #f1fbf5 100%
+        );
+}
+
+.evrak-file-area.file-selected .evrak-file-icon {
+    background: #e8f8ee;
+    color: #24945a;
+}
+
+.evrak-file-area.file-selected .evrak-file-text strong {
+    color: #217a4a;
+}
+
+.evrak-file-area.file-selected .evrak-file-button {
+    background: #24945a;
+    border-color: #24945a;
+    color: #ffffff;
+}
+
+
+/* =========================================================
+   FORM AKSİYONLARI
+========================================================= */
+
+#evrakFormCard > form > div:last-child {
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+#evrakFormCard .view-button {
+    min-height: 42px;
+    padding: 0 16px;
+}
+
+
+/* =========================================================
+   DARK MODE
+========================================================= */
+
+body.dark-mode #evrakFormCard input[type="text"],
+body.dark-mode #evrakFormCard input[type="date"],
+body.dark-mode #evrakFormCard select,
+body.dark-mode #evrakFormCard textarea {
+    background: #111b2d;
+    border-color: #2b3a50 !important;
+    color: #edf2f8;
+}
+
+body.dark-mode #evrakFormCard input[type="text"]:focus,
+body.dark-mode #evrakFormCard input[type="date"]:focus,
+body.dark-mode #evrakFormCard select:focus,
+body.dark-mode #evrakFormCard textarea:focus {
+    border-color: #557cc5 !important;
+
+    box-shadow:
+        0 0 0 3px rgba(82, 126, 220, .12);
+}
+
+body.dark-mode .evrak-file-area {
+    border-color: #314158;
+
+    background:
+        linear-gradient(
+            180deg,
+            #131f32 0%,
+            #101a2b 100%
+        );
+}
+
+body.dark-mode .evrak-file-area:hover {
+    border-color: #5279c1;
+
+    background:
+        linear-gradient(
+            180deg,
+            #17263e 0%,
+            #152339 100%
+        );
+
+    box-shadow:
+        0 6px 18px rgba(55, 100, 170, .12);
+}
+
+body.dark-mode .evrak-file-icon {
+    background: #172c50;
+    color: #82aaff;
+}
+
+body.dark-mode .evrak-file-text strong {
+    color: #e4eaf3;
+}
+
+body.dark-mode .evrak-file-text span {
+    color: #8493a8;
+}
+
+body.dark-mode .evrak-file-button {
+    background: #172236;
+    border-color: #36517a;
+    color: #82aaff;
+}
+
+body.dark-mode .evrak-file-area:hover .evrak-file-button {
+    background: #4d73bb;
+    border-color: #4d73bb;
+    color: #ffffff;
+}
+
+body.dark-mode .evrak-file-area.file-selected {
+    border-color: #347151;
+
+    background:
+        linear-gradient(
+            180deg,
+            #142c22 0%,
+            #11251d 100%
+        );
+}
+
+body.dark-mode .evrak-file-area.file-selected .evrak-file-icon {
+    background: #173a29;
+    color: #7bd5a2;
+}
+
+body.dark-mode .evrak-file-area.file-selected .evrak-file-text strong {
+    color: #8bd9ad;
+}
+
+body.dark-mode .evrak-file-area.file-selected .evrak-file-button {
+    background: #24945a;
+    border-color: #24945a;
+    color: #ffffff;
+}
+
+
+/* =========================================================
+   MOBİL
+========================================================= */
+
+@media (max-width: 700px) {
+
+    .evrak-file-area {
+        flex-wrap: wrap;
+        padding: 16px;
+    }
+
+    .evrak-file-text {
+        min-width: calc(100% - 66px);
+    }
+
+    .evrak-file-button {
+        width: 100%;
+    }
+
+}

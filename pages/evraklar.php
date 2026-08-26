@@ -12,7 +12,11 @@ require_once "../config/database.php";
    YETKİ KONTROLÜ
 ========================================================= */
 
-$yoneticiMi = ($_SESSION["rol"] ?? "") === "yonetici";
+$yoneticiMi = in_array(
+    $_SESSION["rol"] ?? "",
+    ["yonetici", "admin"],
+    true
+);
 
 $kendiPersonelId = null;
 
@@ -2802,12 +2806,13 @@ body.dark-mode .evrak-page .view-button:hover {
             <!-- =================================================
                  EVRAK EKLE / DÜZENLE
             ================================================== -->
+<div
+    class="large-card"
+    id="evrakFormCard"
+    style="<?= $duzenlenecekEvrak ? "" : "display:none;" ?>"
+>
 
-            <div class="large-card">
-
-
-                <div class="card-title-area">
-
+    <div class="card-title-area">
                     <div>
 
                         <h2>
@@ -3257,24 +3262,13 @@ body.dark-mode .evrak-page .view-button:hover {
                         </button>
 
 
-                        <?php if (
-                            $duzenlenecekEvrak
-                        ): ?>
-
-                            <a
-                                href="evraklar.php"
-                                class="view-button"
-                            >
-
-                                <i
-                                    data-lucide="x"
-                                ></i>
-
-                                İptal
-
-                            </a>
-
-                        <?php endif; ?>
+<a
+    href="evraklar.php"
+    class="view-button"
+>
+    <i data-lucide="arrow-left"></i>
+    Geri
+</a>
 
                     </div>
 
@@ -3289,6 +3283,7 @@ body.dark-mode .evrak-page .view-button:hover {
 
             <div
                 class="large-card evrak-list-card"
+                 id="evrakListCard"
             >
 
 
@@ -3296,20 +3291,18 @@ body.dark-mode .evrak-page .view-button:hover {
                     class="evrak-list-header"
                 >
 
-                    <div
-                        class="evrak-list-title"
-                    >
+<?php if (!$duzenlenecekEvrak): ?>
 
-                        <h2>
-                            Evrak Listesi
-                        </h2>
+    <button
+        type="button"
+        class="view-button"
+        onclick="evrakFormunuAc()"
+    >
+        <i data-lucide="plus"></i>
+        Evrak Ekle
+    </button>
 
-                        <p>
-                            <?= count($evraklar) ?>
-                            kayıt listeleniyor
-                        </p>
-
-                    </div>
+<?php endif; ?>
 
 
                     <!-- FİLTRELER -->
@@ -3793,12 +3786,7 @@ body.dark-mode .evrak-page .view-button:hover {
 
         <!-- SADECE YÖNETİCİ -->
 
-        <?php
-        if (
-            isset($_SESSION["rol"]) &&
-            $_SESSION["rol"] === "yonetici"
-        ):
-        ?>
+<?php if ($yoneticiMi): ?>
 
 
             <?php if (
@@ -4044,6 +4032,29 @@ body.dark-mode .evrak-page .view-button:hover {
 <script>
 
     lucide.createIcons();
+    function evrakFormunuAc()
+{
+    const formCard =
+        document.getElementById("evrakFormCard");
+
+    if (!formCard) {
+        return;
+    }
+
+formCard.style.display = "block";
+
+const listCard =
+    document.getElementById("evrakListCard");
+
+if (listCard) {
+    listCard.style.display = "none";
+}
+
+formCard.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+});
+}
 
 
     /* =====================================================
@@ -4071,19 +4082,41 @@ body.dark-mode .evrak-page .view-button:hover {
             "change",
             function () {
 
-                if (
-                    this.files &&
-                    this.files.length > 0
-                ) {
+if (
+    this.files &&
+    this.files.length > 0
+) {
 
-                    fileName.textContent =
-                        this.files[0].name;
+    fileName.textContent =
+        this.files[0].name;
 
-                } else {
+    const fileArea =
+        document.querySelector(
+            ".evrak-file-area"
+        );
 
-                    fileName.textContent =
-                        "Dosya yüklemek isteğe bağlıdır";
-                }
+    if (fileArea) {
+        fileArea.classList.add(
+            "file-selected"
+        );
+    }
+
+} else {
+
+    fileName.textContent =
+        "Dosya yüklemek isteğe bağlıdır";
+
+    const fileArea =
+        document.querySelector(
+            ".evrak-file-area"
+        );
+
+    if (fileArea) {
+        fileArea.classList.remove(
+            "file-selected"
+        );
+    }
+}
 
             }
         );
