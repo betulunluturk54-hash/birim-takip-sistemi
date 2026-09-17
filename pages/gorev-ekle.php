@@ -34,30 +34,52 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
    GÖREV EKLE
 ========================================== */
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    $baslik = trim($_POST["baslik"]);
-    $aciklama = trim($_POST["aciklama"]);
-    $personel_id = $_POST["personel_id"];
-    $baslangic_tarihi = $_POST["baslangic_tarihi"];
-    $teslim_tarihi = $_POST["teslim_tarihi"];
-    $durum = $_POST["durum"];
-    $oncelik = $_POST["oncelik"];
+    $baslik = trim($_POST["baslik"] ?? "");
+    $aciklama = trim($_POST["aciklama"] ?? "");
+
+    $personel_ids = $_POST["personel_id"] ?? [];
+
+    $baslangic_tarihi = $_POST["baslangic_tarihi"] ?? "";
+    $teslim_tarihi = $_POST["teslim_tarihi"] ?? "";
+    $durum = $_POST["durum"] ?? "Bekliyor";
+    $oncelik = $_POST["oncelik"] ?? "Normal";
 
 
-    if ($baslik == "") {
+    /* ==========================================
+       PERSONEL ID'LERİNİ TEMİZLE
+    ========================================== */
+
+    if (!is_array($personel_ids)) {
+        $personel_ids = [$personel_ids];
+    }
+
+    $personel_ids = array_map("intval", $personel_ids);
+    $personel_ids = array_filter($personel_ids, function ($id) {
+        return $id > 0;
+    });
+
+    $personel_ids = array_values(array_unique($personel_ids));
+
+
+    /* ==========================================
+       KONTROLLER
+    ========================================== */
+
+    if ($baslik === "") {
 
         $mesaj = "Görev başlığı boş bırakılamaz.";
 
-    } elseif ($personel_id == "") {
+    } elseif (count($personel_ids) === 0) {
 
-        $mesaj = "Lütfen görev atanacak personeli seçin.";
+        $mesaj = "Lütfen görev atanacak en az bir personel seçin.";
 
-    } elseif ($baslangic_tarihi == "") {
+    } elseif ($baslangic_tarihi === "") {
 
         $mesaj = "Başlangıç tarihi seçilmelidir.";
 
-    } elseif ($teslim_tarihi == "") {
+    } elseif ($teslim_tarihi === "") {
 
         $mesaj = "Teslim tarihi seçilmelidir.";
 
@@ -67,38 +89,181 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     } else {
 
-        $sql = "INSERT INTO gorevler
-                (
-                    baslik,
-                    aciklama,
-                    personel_id,
-                    baslangic_tarihi,
-                    teslim_tarihi,
-                    durum,
-                    oncelik
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?)";
+        try {
 
-        $stmt = $db->prepare($sql);
+            $db->beginTransaction();
 
-        if (
+
+            /* ==========================================
+               SEÇİLEN PERSONELLERİN AKTİF VE HESAPLI
+               OLDUĞUNU KONTROL ET
+            ========================================== */
+
+            $personelKontrolStmt = $db->prepare("
+                SELECT
+                    id,
+                    kullanici_id,
+                    ad,
+                    soyad
+                FROM personeller
+                WHERE id = ?
+                AND durum = 'aktif'
+                LIMIT 1
+            ");
+
+            $kontrol_personeller = [];
+
+            foreach ($personel_ids as $personel_id) {
+
+                $personelKontrolStmt->execute([
+                    $personel_id
+                ]);
+
+                $personel = $personelKontrolStmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$personel) {
+
+                    throw new Exception(
+                        "Seçilen personellerden biri bulunamadı veya aktif değil."
+                    );
+                }
+
+                if (empty($personel["kullanici_id"])) {
+
+                    throw new Exception(
+                        $personel["ad"] . " " .
+                        $personel["soyad"] .
+                        " adlı personelin kullanıcı hesabı bulunamadı."
+                    );
+                }
+
+                $kontrol_personeller[] = $personel;
+            }
+
+
+            /* ==========================================
+               GÖREVİ KAYDET
+            ========================================== */
+
+            /*
+             * Eski sistemle uyumluluk için ilk personeli
+             * gorevler.personel_id alanında tutuyoruz.
+             *
+             * Asıl çoklu personel ilişkileri ise
+             * gorev_personeller tablosunda tutulacak.
+             */
+
+            $ilk_personel_id = $personel_ids[0];
+
+            $sql = "INSERT INTO gorevler
+                    (
+                        baslik,
+                        aciklama,
+                        personel_id,
+                        baslangic_tarihi,
+                        teslim_tarihi,
+                        durum,
+                        oncelik
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+            $stmt = $db->prepare($sql);
+
             $stmt->execute([
                 $baslik,
                 $aciklama,
-                $personel_id,
+                $ilk_personel_id,
                 $baslangic_tarihi,
                 $teslim_tarihi,
                 $durum,
                 $oncelik
-            ])
-        ) {
+            ]);
+
+
+            /* ==========================================
+               EKLENEN GÖREVİN ID'SİNİ AL
+            ========================================== */
+
+            $gorev_id = (int) $db->lastInsertId();
+
+
+            /* ==========================================
+               PERSONEL - GÖREV İLİŞKİLERİNİ KAYDET
+            ========================================== */
+
+            $iliskiStmt = $db->prepare("
+                INSERT INTO gorev_personeller
+                (
+                    gorev_id,
+                    personel_id
+                )
+                VALUES (?, ?)
+            ");
+
+            foreach ($personel_ids as $personel_id) {
+
+                $iliskiStmt->execute([
+                    $gorev_id,
+                    $personel_id
+                ]);
+            }
+
+
+            /* ==========================================
+               HER PERSONELE AYRI BİLDİRİM OLUŞTUR
+            ========================================== */
+
+            $bildirimStmt = $db->prepare("
+                INSERT INTO bildirimler
+                (
+                    kullanici_id,
+                    gorev_id,
+                    mesaj,
+                    tur,
+                    okundu
+                )
+                VALUES (?, ?, ?, ?, 0)
+            ");
+
+            $bildirim_mesaji =
+                "Size yeni bir görev atandı: " . $baslik;
+
+            foreach ($kontrol_personeller as $personel) {
+
+                $bildirimStmt->execute([
+                    $personel["kullanici_id"],
+                    $gorev_id,
+                    $bildirim_mesaji,
+                    "gorev"
+                ]);
+            }
+
+
+            /* ==========================================
+               İŞLEMLER BAŞARILI
+            ========================================== */
+
+            $db->commit();
 
             header("Location: gorevler.php");
             exit;
 
-        } else {
 
-            $mesaj = "Görev eklenirken bir hata oluştu.";
+        } catch (Exception $e) {
+
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            $mesaj = $e->getMessage();
+
+        } catch (PDOException $e) {
+
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            $mesaj = "Görev eklenirken bir veritabanı hatası oluştu.";
         }
     }
 }
@@ -121,6 +286,109 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <link rel="stylesheet" href="../css/style.css">
+    <style>
+
+.personel-secim-listesi {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--white);
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.personel-secim-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    cursor: pointer;
+    transition: background-color .18s ease,
+                border-color .18s ease;
+}
+
+.personel-secim-item:hover {
+    background: #f7f9fc;
+    border-color: var(--border);
+}
+
+.personel-secim-item input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.personel-check-box {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    border: 1.5px solid #b8c3d4;
+    border-radius: 5px;
+    background: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all .18s ease;
+}
+
+.personel-secim-item input:checked + .personel-check-box {
+    background: #4d6fd8;
+    border-color: #4d6fd8;
+}
+
+.personel-secim-item input:checked + .personel-check-box::after {
+    content: "✓";
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.personel-secim-adi {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.personel-secim-aciklama {
+    display: block;
+    margin-top: 7px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+
+/* DARK MODE */
+
+body.dark-mode .personel-secim-listesi {
+    background: #121b2d;
+    border-color: #26344a;
+}
+
+body.dark-mode .personel-secim-item:hover {
+    background: #182338;
+    border-color: #344761;
+}
+
+body.dark-mode .personel-check-box {
+    background: #0f1826;
+    border-color: #405069;
+}
+
+body.dark-mode .personel-secim-item input:checked + .personel-check-box {
+    background: #4d6fd8;
+    border-color: #4d6fd8;
+}
+
+</style>
 
 </head>
 
@@ -303,6 +571,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 
             <div class="topbar-right">
+
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
 
 
                 <!-- TEMA -->
@@ -523,58 +793,60 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                         </div>
 
                     </div>
+<!-- PERSONELLER -->
 
+<div class="form-group">
 
-                    <!-- PERSONEL -->
+    <label>
+        Görev Atanacak Personeller
+    </label>
 
-                    <div class="form-group">
+    <div class="personel-secim-listesi">
 
-                        <label for="personel_id">
-                            Görev Atanacak Personel
-                        </label>
+        <?php foreach ($personeller as $personel): ?>
 
-                        <div class="form-input-wrapper">
+            <label class="personel-secim-item">
 
-                            <i
-                                data-lucide="user"
-                                class="form-input-icon">
-                            </i>
+                <input
+                    type="checkbox"
+                    name="personel_id[]"
+                    value="<?php echo (int) $personel["id"]; ?>"
+                    <?php
+                    if (
+                        isset($_POST["personel_id"]) &&
+                        is_array($_POST["personel_id"]) &&
+                        in_array(
+                            (int) $personel["id"],
+                            array_map("intval", $_POST["personel_id"]),
+                            true
+                        )
+                    ) {
+                        echo "checked";
+                    }
+                    ?>
+                >
 
-                            <select
-                                id="personel_id"
-                                name="personel_id"
-                                required>
+                <span class="personel-check-box"></span>
 
-                                <option value="">
-                                    Personel seçin
-                                </option>
+                <span class="personel-secim-adi">
+                    <?php
+                    echo htmlspecialchars(
+                        $personel["ad"] . " " . $personel["soyad"]
+                    );
+                    ?>
+                </span>
 
+            </label>
 
-                                <?php foreach ($personeller as $personel): ?>
+        <?php endforeach; ?>
 
-                                    <option
-                                        value="<?php echo $personel["id"]; ?>">
+    </div>
 
-                                        <?php
+    <small class="personel-secim-aciklama">
+        Görevi vermek istediğiniz personelleri seçin.
+    </small>
 
-                                        echo htmlspecialchars(
-                                            $personel["ad"] . " " .
-                                            $personel["soyad"]
-                                        );
-
-                                        ?>
-
-                                    </option>
-
-                                <?php endforeach; ?>
-
-
-                            </select>
-
-                        </div>
-
-                    </div>
-
+</div>
 
                     <!-- BAŞLANGIÇ TARİHİ -->
 

@@ -46,22 +46,71 @@ if (!$gorev) {
 
 
 /* ==========================================
-   PERSONELLERİ GETİR
-   Aktif personeller + mevcut görevdeki personel
+   MEVCUT GÖREVE ATANAN PERSONELLERİ GETİR
 ========================================== */
 
-$sql = "SELECT
-            id,
-            ad,
-            soyad,
-            durum
-        FROM personeller
-        WHERE durum = 'aktif'
-           OR id = ?
-        ORDER BY ad ASC, soyad ASC";
+$atananPersonelIds = [];
+
+$sql = "
+    SELECT personel_id
+    FROM gorev_personeller
+    WHERE gorev_id = ?
+";
 
 $stmt = $db->prepare($sql);
-$stmt->execute([$gorev["personel_id"]]);
+$stmt->execute([$id]);
+
+$atananPersonelIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+
+/*
+ * Eski sistemde oluşturulmuş ve gorev_personeller
+ * tablosunda kaydı bulunmayan görevler için
+ * gorevler.personel_id değerini de dikkate al.
+ */
+
+if (
+    empty($atananPersonelIds) &&
+    !empty($gorev["personel_id"])
+) {
+    $atananPersonelIds = [
+        (int) $gorev["personel_id"]
+    ];
+}
+
+$atananPersonelIds = array_map(
+    "intval",
+    $atananPersonelIds
+);
+
+
+/* ==========================================
+   PERSONELLERİ GETİR
+   Aktif personeller + mevcut atanmış personeller
+========================================== */
+
+$sql = "
+    SELECT
+        id,
+        ad,
+        soyad,
+        durum
+    FROM personeller
+    WHERE durum = 'aktif'
+       OR id IN (
+            SELECT personel_id
+            FROM gorev_personeller
+            WHERE gorev_id = ?
+       )
+       OR id = ?
+    ORDER BY ad ASC, soyad ASC
+";
+
+$stmt = $db->prepare($sql);
+$stmt->execute([
+    $id,
+    $gorev["personel_id"]
+]);
 
 $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -70,30 +119,58 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
    GÖREV GÜNCELLE
 ========================================== */
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    $baslik = trim($_POST["baslik"]);
-    $aciklama = trim($_POST["aciklama"]);
-    $personel_id = $_POST["personel_id"];
-    $baslangic_tarihi = $_POST["baslangic_tarihi"];
-    $teslim_tarihi = $_POST["teslim_tarihi"];
-    $durum = $_POST["durum"];
-    $oncelik = $_POST["oncelik"];
+    $baslik = trim($_POST["baslik"] ?? "");
+    $aciklama = trim($_POST["aciklama"] ?? "");
+
+    $personel_ids = $_POST["personel_id"] ?? [];
+
+    $baslangic_tarihi = $_POST["baslangic_tarihi"] ?? "";
+    $teslim_tarihi = $_POST["teslim_tarihi"] ?? "";
+    $durum = $_POST["durum"] ?? "Bekliyor";
+    $oncelik = $_POST["oncelik"] ?? "Normal";
 
 
-    if ($baslik == "") {
+    /* ==========================================
+       PERSONEL ID'LERİNİ TEMİZLE
+    ========================================== */
+
+    if (!is_array($personel_ids)) {
+        $personel_ids = [$personel_ids];
+    }
+
+    $personel_ids = array_map("intval", $personel_ids);
+
+    $personel_ids = array_filter(
+        $personel_ids,
+        function ($personel_id) {
+            return $personel_id > 0;
+        }
+    );
+
+    $personel_ids = array_values(
+        array_unique($personel_ids)
+    );
+
+
+    /* ==========================================
+       KONTROLLER
+    ========================================== */
+
+    if ($baslik === "") {
 
         $mesaj = "Görev başlığı boş bırakılamaz.";
 
-    } elseif ($personel_id == "") {
+    } elseif (count($personel_ids) === 0) {
 
-        $mesaj = "Lütfen görev atanacak personeli seçin.";
+        $mesaj = "Lütfen en az bir personel seçin.";
 
-    } elseif ($baslangic_tarihi == "") {
+    } elseif ($baslangic_tarihi === "") {
 
         $mesaj = "Başlangıç tarihi seçilmelidir.";
 
-    } elseif ($teslim_tarihi == "") {
+    } elseif ($teslim_tarihi === "") {
 
         $mesaj = "Teslim tarihi seçilmelidir.";
 
@@ -103,7 +180,86 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     } else {
 
-        $sql = "UPDATE gorevler
+        try {
+
+            $db->beginTransaction();
+
+
+            /* ==========================================
+               PERSONELLERİN AKTİF / GEÇERLİ OLDUĞUNU KONTROL ET
+            ========================================== */
+
+            $personelKontrolStmt = $db->prepare("
+                SELECT
+                    id,
+                    ad,
+                    soyad,
+                    kullanici_id,
+                    durum
+                FROM personeller
+                WHERE id = ?
+                LIMIT 1
+            ");
+
+            $kontrol_personeller = [];
+
+            foreach ($personel_ids as $personel_id) {
+
+                $personelKontrolStmt->execute([
+                    $personel_id
+                ]);
+
+                $personel = $personelKontrolStmt->fetch(
+                    PDO::FETCH_ASSOC
+                );
+
+                if (!$personel) {
+
+                    throw new Exception(
+                        "Seçilen personellerden biri bulunamadı."
+                    );
+                }
+
+                if ($personel["durum"] !== "aktif") {
+
+                    /*
+                     * Eski atanmış pasif personel
+                     * düzenleme ekranında görünür,
+                     * ancak yeni atama olarak seçilemez.
+                     */
+                    throw new Exception(
+                        $personel["ad"] . " " .
+                        $personel["soyad"] .
+                        " adlı personel aktif değil."
+                    );
+                }
+
+                if (empty($personel["kullanici_id"])) {
+
+                    throw new Exception(
+                        $personel["ad"] . " " .
+                        $personel["soyad"] .
+                        " adlı personelin kullanıcı hesabı bulunamadı."
+                    );
+                }
+
+                $kontrol_personeller[] = $personel;
+            }
+
+
+            /* ==========================================
+               GOREVLER TABLOSUNU GÜNCELLE
+            ========================================== */
+
+            /*
+             * Eski yapı ile uyumluluk için
+             * ilk seçilen personeli burada da tutuyoruz.
+             */
+
+            $ilk_personel_id = $personel_ids[0];
+
+            $sql = "
+                UPDATE gorevler
                 SET
                     baslik = ?,
                     aciklama = ?,
@@ -112,30 +268,86 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     teslim_tarihi = ?,
                     durum = ?,
                     oncelik = ?
-                WHERE id = ?";
+                WHERE id = ?
+            ";
 
-        $stmt = $db->prepare($sql);
+            $stmt = $db->prepare($sql);
 
-        if (
             $stmt->execute([
                 $baslik,
                 $aciklama,
-                $personel_id,
+                $ilk_personel_id,
                 $baslangic_tarihi,
                 $teslim_tarihi,
                 $durum,
                 $oncelik,
                 $id
-            ])
-        ) {
+            ]);
+
+
+            /* ==========================================
+               ESKİ PERSONEL İLİŞKİLERİNİ SİL
+            ========================================== */
+
+            $sql = "
+                DELETE FROM gorev_personeller
+                WHERE gorev_id = ?
+            ";
+
+            $stmt = $db->prepare($sql);
+
+            $stmt->execute([$id]);
+
+
+            /* ==========================================
+               YENİ PERSONEL İLİŞKİLERİNİ KAYDET
+            ========================================== */
+
+            $iliskiStmt = $db->prepare("
+                INSERT INTO gorev_personeller
+                (
+                    gorev_id,
+                    personel_id
+                )
+                VALUES (?, ?)
+            ");
+
+            foreach ($personel_ids as $personel_id) {
+
+                $iliskiStmt->execute([
+                    $id,
+                    $personel_id
+                ]);
+            }
+
+
+            /* ==========================================
+               İŞLEM BAŞARILI
+            ========================================== */
+
+            $db->commit();
 
             header("Location: gorevler.php");
             exit;
 
-        } else {
 
-            $mesaj = "Görev güncellenirken bir hata oluştu.";
+        } catch (Exception $e) {
 
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            $mesaj = $e->getMessage();
+
+
+        } catch (PDOException $e) {
+
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+
+            $mesaj =
+                "Görev güncellenirken bir veritabanı hatası oluştu.";
         }
     }
 }
@@ -158,6 +370,116 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <link rel="stylesheet" href="../css/style.css">
+    <style>
+
+.personel-secim-listesi {
+    width: 100%;
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 9px 10px;
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+}
+
+.personel-secim-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 42px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition:
+        background-color .18s ease,
+        border-color .18s ease;
+}
+
+.personel-secim-item:hover {
+    background: #f7f9fc;
+}
+
+.personel-secim-item input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.personel-check-box {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    border: 1.5px solid #b8c3d4;
+    border-radius: 5px;
+    background: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all .18s ease;
+}
+
+.personel-secim-item input:checked + .personel-check-box {
+    background: #4d6fd8;
+    border-color: #4d6fd8;
+}
+
+.personel-secim-item input:checked + .personel-check-box::after {
+    content: "✓";
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.personel-secim-adi {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.personel-arsiv-label {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.personel-secim-aciklama {
+    display: block;
+    margin-top: 7px;
+    color: var(--muted);
+    font-size: 11px;
+}
+
+
+/* DARK MODE */
+
+body.dark-mode .personel-secim-listesi {
+    background: #121b2d;
+    border-color: #26344a;
+}
+
+body.dark-mode .personel-secim-item:hover {
+    background: #182338;
+}
+
+body.dark-mode .personel-check-box {
+    background: #0f1826;
+    border-color: #405069;
+}
+
+body.dark-mode .personel-secim-item input:checked + .personel-check-box {
+    background: #4d6fd8;
+    border-color: #4d6fd8;
+}
+
+body.dark-mode .personel-secim-adi {
+    color: #e5ebf3;
+}
+
+</style>
 
 </head>
 
@@ -325,6 +647,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 
             <div class="topbar-right">
+
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
 
 
                 <div class="theme-switch">
@@ -540,69 +864,99 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                     </div>
 
+<!-- PERSONELLER -->
 
-                    <!-- PERSONEL -->
+<div class="form-group">
 
-                    <div class="form-group">
+    <label>
+        Görev Atanacak Personeller
+    </label>
 
-                        <label for="personel_id">
-                            Görev Atanacak Personel
-                        </label>
+    <div class="form-input-wrapper">
 
-                        <div class="form-input-wrapper">
+        <i
+            data-lucide="users"
+            class="form-input-icon">
+        </i>
 
-                            <i
-                                data-lucide="user"
-                                class="form-input-icon">
-                            </i>
+        <div class="personel-secim-listesi">
 
-                            <select
-                                id="personel_id"
-                                name="personel_id"
-                                required>
+            <?php foreach ($personeller as $personel): ?>
 
-                                <option value="">
-                                    Personel seçin
-                                </option>
+                <?php
+                $personelSecili = in_array(
+                    (int) $personel["id"],
+                    $atananPersonelIds,
+                    true
+                );
 
+                if (
+                    isset($_POST["personel_id"]) &&
+                    is_array($_POST["personel_id"])
+                ) {
+                    $personelSecili = in_array(
+                        (int) $personel["id"],
+                        array_map(
+                            "intval",
+                            $_POST["personel_id"]
+                        ),
+                        true
+                    );
+                }
+                ?>
 
-                                <?php foreach ($personeller as $personel): ?>
+                <label class="personel-secim-item">
 
-                                    <option
-                                        value="<?php echo $personel["id"]; ?>"
-                                        <?php
-                                        echo (
-                                            $gorev["personel_id"]
-                                            == $personel["id"]
-                                        )
-                                            ? "selected"
-                                            : "";
-                                        ?>>
+                    <input
+                        type="checkbox"
+                        name="personel_id[]"
+                        value="<?php echo (int) $personel["id"]; ?>"
+                        <?php
+                        echo $personelSecili
+                            ? "checked"
+                            : "";
+                        ?>
+                        <?php
+                        if ($personel["durum"] !== "aktif") {
+                            echo " disabled";
+                        }
+                        ?>
+                    >
 
-                                        <?php
+                    <span class="personel-check-box"></span>
 
-                                        echo htmlspecialchars(
-                                            $personel["ad"] . " " .
-                                            $personel["soyad"]
-                                        );
+                    <span class="personel-secim-adi">
 
-                                        if (
-                                            $personel["durum"] == "pasif"
-                                        ) {
-                                            echo " (Arşiv)";
-                                        }
+                        <?php
+                        echo htmlspecialchars(
+                            $personel["ad"] . " " .
+                            $personel["soyad"]
+                        );
+                        ?>
 
-                                        ?>
+                        <?php if ($personel["durum"] !== "aktif"): ?>
 
-                                    </option>
+                            <small class="personel-arsiv-label">
+                                (Arşiv)
+                            </small>
 
-                                <?php endforeach; ?>
+                        <?php endif; ?>
 
-                            </select>
+                    </span>
 
-                        </div>
+                </label>
 
-                    </div>
+            <?php endforeach; ?>
+
+        </div>
+
+    </div>
+
+    <small class="personel-secim-aciklama">
+        Göreve atanacak bir veya birden fazla personeli seçebilirsiniz.
+    </small>
+
+</div>
 
 
                     <!-- BAŞLANGIÇ TARİHİ -->

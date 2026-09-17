@@ -596,6 +596,8 @@ if ($mevcut_durum === "Tamamlandı") {
 
             <div class="topbar-right">
 
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
+
 
                 <!-- TEMA -->
 

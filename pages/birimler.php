@@ -7,7 +7,98 @@ if (!isset($_SESSION["kullanici_id"])) {
     exit;
 }
 
+/* ==========================================
+   YÖNETİCİ YETKİ KONTROLÜ
+========================================== */
+
+if (
+    !in_array(
+        $_SESSION["rol"] ?? "",
+        ["yonetici", "admin"],
+        true
+    )
+) {
+    header("Location: ../personel-dashboard.php");
+    exit;
+}
+
 require_once "../config/database.php";
+
+/* ==========================================
+   GİRİŞ YAPAN KULLANICI
+========================================== */
+
+$stmt = $db->prepare("
+    SELECT
+        id,
+        ad,
+        soyad,
+        kullanici_adi,
+        rol
+    FROM kullanicilar
+    WHERE id = ?
+    LIMIT 1
+");
+
+$stmt->execute([
+    $_SESSION["kullanici_id"]
+]);
+
+$giris_yapan_kullanici = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$giris_yapan_kullanici) {
+    session_destroy();
+    header("Location: ../login.php");
+    exit;
+}
+
+
+/* ==========================================
+   AD SOYAD
+========================================== */
+
+$kullanici_ad_soyad = trim(
+    ($giris_yapan_kullanici["ad"] ?? "") .
+    " " .
+    ($giris_yapan_kullanici["soyad"] ?? "")
+);
+
+
+/* Ad soyad boşsa kullanıcı adını göster */
+
+if ($kullanici_ad_soyad === "") {
+
+    $kullanici_ad_soyad =
+        $giris_yapan_kullanici["kullanici_adi"];
+
+}
+
+
+/* ==========================================
+   ROL ETİKETİ
+========================================== */
+
+if (
+    in_array(
+        $giris_yapan_kullanici["rol"],
+        ["yonetici", "admin"],
+        true
+    )
+) {
+
+    $rol_etiketi = "Yönetici";
+
+} elseif (
+    $giris_yapan_kullanici["rol"] === "personel"
+) {
+
+    $rol_etiketi = "Personel";
+
+} else {
+
+    $rol_etiketi = "Kullanıcı";
+
+}
 
 
 /* ==========================================
@@ -167,7 +258,23 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             </a>
 
+<!-- PROFİL -->
 
+<a
+    href="../profil.php"
+    class="sidebar-link"
+>
+
+    <i
+        data-lucide="user-round"
+        class="menu-icon"
+    ></i>
+
+    <span>
+        Profilim
+    </span>
+
+</a>
         </nav>
 
 
@@ -229,6 +336,9 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <div class="topbar-right">
 
 
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
+
+
                 <!-- TEMA -->
 
                 <div class="theme-switch">
@@ -267,11 +377,19 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                         <?php
 
-                        echo strtoupper(
-                            substr(
-                                $_SESSION["kullanici_adi"],
+                        $ilk_harf =
+                            mb_substr(
+                                $giris_yapan_kullanici["ad"]
+                                ?: $giris_yapan_kullanici["kullanici_adi"],
                                 0,
-                                1
+                                1,
+                                "UTF-8"
+                            );
+
+                        echo htmlspecialchars(
+                            mb_strtoupper(
+                                $ilk_harf,
+                                "UTF-8"
                             )
                         );
 
@@ -287,7 +405,9 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <?php
 
                             echo htmlspecialchars(
-                                $_SESSION["kullanici_adi"]
+                                $kullanici_ad_soyad,
+                                ENT_QUOTES,
+                                "UTF-8"
                             );
 
                             ?>
@@ -300,7 +420,9 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <?php
 
                             echo htmlspecialchars(
-                                $_SESSION["rol"]
+                                $rol_etiketi,
+                                ENT_QUOTES,
+                                "UTF-8"
                             );
 
                             ?>
@@ -366,15 +488,15 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     </div>
 
 
-<a
-    href="birim-ekle.php"
-    class="view-button">
+                    <a
+                        href="birim-ekle.php"
+                        class="view-button">
 
-    <i data-lucide="plus"></i>
+                        <i data-lucide="plus"></i>
 
-    Yeni Birim
+                        Yeni Birim
 
-</a>
+                    </a>
 
                 </div>
 
@@ -413,7 +535,7 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                             <?php if (count($birimler) > 0): ?>
 
-                             <?php $sira = 1; ?>
+                                <?php $sira = 1; ?>
 
                                 <?php foreach ($birimler as $birim): ?>
 
@@ -421,7 +543,13 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                     <tr>
 
                                         <td>
-                                        <?php $sira++; ?>
+                                            <?php
+
+                                            echo $sira;
+
+                                            $sira++;
+
+                                            ?>
                                         </td>
 
 
@@ -442,7 +570,9 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                     <?php
 
                                                     echo htmlspecialchars(
-                                                        $birim["birim_adi"]
+                                                        $birim["birim_adi"],
+                                                        ENT_QUOTES,
+                                                        "UTF-8"
                                                     );
 
                                                     ?>
@@ -460,26 +590,26 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 
                                                 <a
-    href="birim-duzenle.php?id=<?php echo $birim["id"]; ?>"
-    class="action-button edit">
+                                                    href="birim-duzenle.php?id=<?php echo $birim["id"]; ?>"
+                                                    class="action-button edit">
 
-    <i data-lucide="pencil"></i>
+                                                    <i data-lucide="pencil"></i>
 
-    Düzenle
+                                                    Düzenle
 
-</a>
+                                                </a>
 
 
-<a
-    href="birim-sil.php?id=<?php echo $birim["id"]; ?>"
-    class="action-button delete"
-    onclick="return confirm('Bu birimi silmek istediğinize emin misiniz?');">
+                                                <a
+                                                    href="birim-sil.php?id=<?php echo $birim["id"]; ?>"
+                                                    class="action-button delete"
+                                                    onclick="return confirm('Bu birimi silmek istediğinize emin misiniz?');">
 
-    <i data-lucide="trash-2"></i>
+                                                    <i data-lucide="trash-2"></i>
 
-    Sil
+                                                    Sil
 
-</a>
+                                                </a>
 
 
                                             </div>
@@ -540,8 +670,11 @@ $birimler = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 <script src="../js/script.js"></script>
 
+
 <script>
+
     lucide.createIcons();
+
 </script>
 
 

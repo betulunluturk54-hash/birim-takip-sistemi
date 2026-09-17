@@ -138,7 +138,110 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     <link
         rel="stylesheet"
         href="../css/style.css">
+<style>
 
+/* =========================================================
+   KULLANICI AÇILIR MENÜ
+========================================================= */
+
+.user-dropdown-wrapper {
+    position: relative;
+}
+
+.user-dropdown-wrapper .user-area {
+    cursor: pointer;
+}
+
+.user-dropdown {
+    position: absolute;
+
+    top: calc(100% + 10px);
+    right: 0;
+
+    min-width: 165px;
+
+    padding: 6px;
+
+    background: var(--white);
+
+    border: 1px solid var(--border);
+
+    border-radius: 11px;
+
+    box-shadow:
+        0 10px 28px rgba(25, 45, 80, 0.12);
+
+    opacity: 0;
+    visibility: hidden;
+
+    transform: translateY(-5px);
+
+    transition:
+        opacity 0.18s ease,
+        transform 0.18s ease,
+        visibility 0.18s ease;
+
+    z-index: 3000;
+}
+
+.user-dropdown.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.user-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+
+    width: 100%;
+
+    padding: 10px 11px;
+
+    border-radius: 8px;
+
+    color: #b33f3f;
+
+    font-size: 13px;
+    font-weight: 600;
+
+    transition:
+        background-color 0.2s ease,
+        color 0.2s ease;
+}
+
+.user-dropdown-item:hover {
+    background: #fff1f1;
+    color: #a73535;
+}
+
+.user-dropdown-item svg {
+    width: 17px;
+    height: 17px;
+}
+
+
+/* =========================================================
+   DARK MODE
+========================================================= */
+
+body.dark-mode .user-dropdown {
+    background: #121b2d;
+    border-color: #26344a;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+body.dark-mode .user-dropdown-item {
+    color: #f0a2a2;
+}
+
+body.dark-mode .user-dropdown-item:hover {
+    background: #321d20;
+    color: #ffb0b0;
+}
+
+</style>
 </head>
 
 
@@ -296,7 +399,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 
             <div class="topbar-right">
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
 
+   <?php require_once __DIR__ . "/../personel-bildirimler.php"; ?>
 
                 <div class="theme-switch">
 
@@ -324,47 +429,96 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 <div class="topbar-divider"></div>
 
+<!-- KULLANICI -->
 
-                <div class="user-area">
+<div class="user-dropdown-wrapper">
 
-                    <div class="user-avatar">
+    <div
+        class="user-area"
+        id="userArea"
+    >
 
-                        <?php
+        <div class="user-avatar">
 
-                        echo strtoupper(
-                            substr(
-                                $_SESSION["kullanici_adi"],
-                                0,
-                                1
-                            )
-                        );
+            <?php
 
-                        ?>
+            echo strtoupper(
+                substr(
+                    $personel["ad"],
+                    0,
+                    1
+                )
+            );
 
-                    </div>
+            ?>
+
+        </div>
 
 
-                    <div class="user-text">
+        <div class="user-text">
 
-                        <strong>
+            <strong>
 
-                            <?php
+                <?php
 
-                            echo htmlspecialchars(
-                                $_SESSION["kullanici_adi"]
-                            );
+                echo htmlspecialchars(
+                    $personel["ad"] . " " . $personel["soyad"],
+                    ENT_QUOTES,
+                    "UTF-8"
+                );
 
-                            ?>
+                ?>
 
-                        </strong>
+            </strong>
 
-                        <span>
-                            Personel
-                        </span>
+            <span>
 
-                    </div>
+                <?php
 
-                </div>
+                echo htmlspecialchars(
+                    $personel["gorev"] ?? "Personel",
+                    ENT_QUOTES,
+                    "UTF-8"
+                );
+
+                ?>
+
+            </span>
+
+        </div>
+
+
+        <i
+            data-lucide="chevron-down"
+            class="user-arrow"
+        ></i>
+
+    </div>
+
+
+    <!-- AÇILIR MENÜ -->
+
+    <div
+        class="user-dropdown"
+        id="userDropdown"
+    >
+
+        <a
+            href="../logout.php"
+            class="user-dropdown-item"
+        >
+
+            <i data-lucide="log-out"></i>
+
+            <span>
+                Çıkış Yap
+            </span>
+
+        </a>
+
+    </div>
+
+</div>
 
             </div>
 

@@ -218,6 +218,9 @@ a {
     justify-content: space-between;
 
     padding: 0 36px;
+    position: relative;
+    z-index: 99999 !important;
+    overflow: visible !important;
 }
 
 .topbar-left {
@@ -343,6 +346,34 @@ a {
     font-size: 18px;
 
     margin-left: 5px;
+}
+
+/* Duyuru listesini tüm kullanıcılar için erişilebilir kılar. */
+.announcement-archive-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-left: auto;
+    padding: 6px 9px;
+    border-radius: 7px;
+    background: #eef3ff;
+    color: #4d6fd8;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.announcement-archive-link svg {
+    width: 14px;
+    height: 14px;
+}
+
+.announcement-archive-link:hover {
+    background: #dfe8ff;
+}
+
+body.dark-mode .announcement-archive-link {
+    background: #1d315c;
+    color: #b8c8ff;
 }
 
 
@@ -3207,211 +3238,17 @@ body.dark-mode .document-search-close:hover {
 }
 
 /* =========================================================
-   KULLANICI AÇILIR MENÜ
-========================================================= */
-
-.user-dropdown-wrapper {
-    position: relative;
-}
-
-.user-area {
-    cursor: pointer;
-}
-
-.user-dropdown {
-    position: absolute;
-    top: calc(100% + 10px);
-    right: 0;
-
-    min-width: 165px;
-
-    background: var(--white);
-    border: 1px solid var(--border);
-    border-radius: 11px;
-
-    box-shadow:
-        0 10px 28px rgba(25, 45, 80, 0.12);
-
-    padding: 6px;
-
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-5px);
-
-    transition:
-        opacity 0.18s ease,
-        transform 0.18s ease,
-        visibility 0.18s ease;
-
-    z-index: 2000;
-}
-
-.user-dropdown.show {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-}
-
-.user-dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-
-    width: 100%;
-
-    padding: 11px 12px;
-
-    border-radius: 8px;
-
-    color: #b33f3f;
-
-    font-size: 13px;
-    font-weight: 600;
-
-    transition:
-        background-color 0.2s ease,
-        color 0.2s ease;
-}
-
-.user-dropdown-item:hover {
-    background: #fff1f1;
-    color: #a73535;
-}
-
-.user-dropdown-item svg {
-    width: 17px;
-    height: 17px;
-}
-
-
-/* =========================================================
-   DARK MODE
-========================================================= */
-
-body.dark-mode .user-dropdown {
-    background: #121b2d;
-    border-color: #26344a;
-
-    box-shadow:
-        0 12px 30px rgba(0, 0, 0, 0.28);
-}
-
-body.dark-mode .user-dropdown-item {
-    color: #f0a2a2;
-}
-
-body.dark-mode .user-dropdown-item:hover {
-    background: #321d20;
-    color: #ffb0b0;
-}
-/* =========================================================
-   KULLANICI AÇILIR MENÜ
-========================================================= */
-
-.user-dropdown-wrapper {
-    position: relative;
-}
-
-.user-dropdown-wrapper .user-area {
-    cursor: pointer;
-}
-
-.user-dropdown {
-    position: absolute;
-    top: calc(100% + 10px);
-    right: 0;
-
-    min-width: 165px;
-
-    padding: 6px;
-
-    background: var(--white);
-    border: 1px solid var(--border);
-    border-radius: 11px;
-
-    box-shadow:
-        0 10px 28px rgba(25, 45, 80, 0.12);
-
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-5px);
-
-    transition:
-        opacity 0.18s ease,
-        transform 0.18s ease,
-        visibility 0.18s ease;
-
-    z-index: 3000;
-}
-
-.user-dropdown.show {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-}
-
-.user-dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-
-    width: 100%;
-
-    padding: 10px 11px;
-
-    border-radius: 8px;
-
-    color: #b33f3f;
-
-    font-size: 13px;
-    font-weight: 600;
-
-    transition:
-        background-color 0.2s ease,
-        color 0.2s ease;
-}
-
-.user-dropdown-item:hover {
-    background: #fff1f1;
-    color: #a73535;
-}
-
-.user-dropdown-item svg {
-    width: 17px;
-    height: 17px;
-}
-
-
-/* =========================================================
-   DARK MODE
-========================================================= */
-
-body.dark-mode .user-dropdown {
-    background: #121b2d;
-    border-color: #26344a;
-
-    box-shadow:
-        0 12px 30px rgba(0, 0, 0, 0.28);
-}
-
-body.dark-mode .user-dropdown-item {
-    color: #f0a2a2;
-}
-
-body.dark-mode .user-dropdown-item:hover {
-    background: #321d20;
-    color: #ffb0b0;
-}
-/* =========================================================
    ORTAK KULLANICI AÇILIR MENÜ
 ========================================================= */
 
 .user-dropdown-wrapper {
     position: relative;
+    z-index: 100000;
 }
 
 .user-dropdown-wrapper .user-area {
     cursor: pointer;
+    user-select: none;
 }
 
 .user-dropdown-wrapper .user-arrow {
@@ -3428,63 +3265,42 @@ body.dark-mode .user-dropdown-item:hover {
 
 .user-dropdown {
     position: absolute;
-
     top: calc(100% + 10px);
     right: 0;
-
     min-width: 165px;
-
     padding: 6px;
-
-    background: var(--white);
-
-    border: 1px solid var(--border);
-
+    background: var(--white, #ffffff);
+    border: 1px solid var(--border, #e7ebf2);
     border-radius: 11px;
-
-    box-shadow:
-        0 10px 28px rgba(25, 45, 80, 0.12);
-
+    box-shadow: 0 10px 28px rgba(25, 45, 80, 0.12);
+    display: none;
     opacity: 0;
     visibility: hidden;
-
     transform: translateY(-5px);
-
-    transition:
-        opacity 0.18s ease,
-        transform 0.18s ease,
-        visibility 0.18s ease;
-
-    z-index: 5000;
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+    z-index: 100001 !important;
 }
 
 .user-dropdown.show {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
+    display: block !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: translateY(0) !important;
 }
 
 .user-dropdown-item {
     display: flex;
     align-items: center;
     gap: 10px;
-
     width: 100%;
-
+    box-sizing: border-box;
     padding: 10px 11px;
-
     border-radius: 8px;
-
     color: #b33f3f;
-
     font-size: 13px;
     font-weight: 600;
-
     text-decoration: none;
-
-    transition:
-        background-color 0.2s ease,
-        color 0.2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 .user-dropdown-item:hover {
@@ -3498,17 +3314,10 @@ body.dark-mode .user-dropdown-item:hover {
     flex-shrink: 0;
 }
 
-
-/* =========================================================
-   DARK MODE
-========================================================= */
-
 body.dark-mode .user-dropdown {
     background: #121b2d;
     border-color: #26344a;
-
-    box-shadow:
-        0 12px 30px rgba(0, 0, 0, 0.28);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
 }
 
 body.dark-mode .user-dropdown-item {
@@ -3520,11 +3329,6 @@ body.dark-mode .user-dropdown-item:hover {
     color: #ffb0b0;
 }
 
-
-/* =========================================================
-   MOBİL
-========================================================= */
-
 @media (max-width: 650px) {
 
     .user-dropdown {
@@ -3533,6 +3337,7 @@ body.dark-mode .user-dropdown-item:hover {
     }
 
 }
+
 /* =========================================================
    EVRAK FORMU - PROFESYONEL TASARIM
 ========================================================= */
@@ -3794,7 +3599,7 @@ body.dark-mode .user-dropdown-item:hover {
         linear-gradient(
             180deg,
             #f8fff9 0%,
-            #f1fbf5 100%
+            #f1f6ff 100%
         );
 }
 
@@ -3948,4 +3753,247 @@ body.dark-mode .evrak-file-area.file-selected .evrak-file-button {
         width: 100%;
     }
 
+}
+.evrak-search-result-info {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+
+    min-height: 34px;
+
+    padding: 0 11px;
+
+    border: 1px solid #e3e9f2;
+    border-radius: 9px;
+
+    background: #f8faff;
+    color: #718096;
+
+    font-size: 11px;
+    font-weight: 550;
+}
+
+.evrak-search-result-info svg {
+    width: 14px;
+    height: 14px;
+
+    color: var(--blue);
+}
+
+.evrak-search-result-info strong {
+    color: #42536b;
+}
+
+body.dark-mode .evrak-search-result-info {
+    background: #162337;
+    border-color: #29394e;
+    color: #8c9bb1;
+}
+
+body.dark-mode .evrak-search-result-info strong {
+    color: #d2dbea;
+}
+
+/* Bildirim Stilleri */
+.notification-wrapper { position: relative; }
+.notification-button {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--white);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.notification-button:hover { background: #f6f8fb; }
+.notification-button svg { width: 19px; height: 19px; }
+.notification-badge {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 20px;
+    background: #dc3545;
+    color: #ffffff;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--white);
+}
+.notification-dropdown {
+    position: absolute;
+    top: calc(100% + 10px);
+    right: 0;
+    width: 350px;
+    max-width: calc(100vw - 30px);
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    box-shadow: 0 12px 30px rgba(25, 45, 80, 0.14);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-5px);
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s ease;
+    z-index: 3000;
+    overflow: hidden;
+}
+.notification-dropdown.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+.notification-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.notification-header strong { font-size: 14px; color: var(--text); }
+.notification-header span { font-size: 11px; color: var(--muted); }
+.notification-list { max-height: 350px; overflow-y: auto; }
+.notification-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 13px 15px;
+    border-bottom: 1px solid var(--border);
+    transition: background-color 0.2s ease;
+    text-decoration: none;
+    color: inherit;
+    cursor: pointer;
+}
+.notification-item:hover { background: #f8fafc; }
+.notification-item.unread { background: #f5f8ff; }
+.notification-icon {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #eef3ff;
+    color: #4d6fd8;
+}
+.notification-icon svg { width: 17px; height: 17px; }
+.notification-content { flex: 1; min-width: 0; }
+.notification-content p { margin: 0 0 5px; font-size: 12px; line-height: 1.45; color: var(--text); }
+.notification-content span { font-size: 10px; color: var(--muted); }
+.notification-empty { padding: 30px 20px; text-align: center; color: var(--muted); font-size: 12px; }
+.notification-empty i { display: block; margin-bottom: 8px; }
+
+body.dark-mode .notification-button { background: #121b2d; border-color: #26344a; color: #ffffff; }
+body.dark-mode .notification-badge { border-color: #121b2d; }
+body.dark-mode .notification-dropdown { background: #121b2d; border-color: #26344a; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.30); }
+body.dark-mode .notification-header { border-color: #26344a; }
+body.dark-mode .notification-item { border-color: #26344a; }
+body.dark-mode .notification-item:hover { background: #182338; }
+body.dark-mode .notification-item.unread { background: #17233b; }
+body.dark-mode .notification-content p { color: #ffffff; }
+
+/* =====================================================
+   PERSONEL DURUMU
+===================================================== */
+
+.personel-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 11px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    border: 1px solid transparent;
+}
+
+.personel-status.aktif {
+    background: #e3f7eb;
+    color: #21834b;
+    border-color: #a9dfbf;
+}
+
+body.dark-mode .personel-status.aktif {
+    background: #183a29;
+    color: #7bd9a4;
+    border-color: #2c6044;
+}
+
+/* =====================================================
+   PERSONEL GÖREVLERİ
+===================================================== */
+
+.personel-gorev-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 220px;
+}
+
+.personel-gorev-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.personel-gorev-name {
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.personel-gorev-status-form {
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.personel-gorev-status {
+    min-width: 115px;
+    height: 32px;
+    padding: 0 26px 0 9px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--white);
+    color: var(--text);
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    outline: none;
+}
+
+.personel-gorev-status:focus {
+    border-color: #4d6fd8;
+    box-shadow: 0 0 0 3px rgba(77, 111, 216, .08);
+}
+
+body.dark-mode .personel-gorev-status {
+    background: #121b2d;
+    border-color: #2a394f;
+    color: #e5ebf3;
+}
+
+body.dark-mode .personel-gorev-name {
+    color: #e5ebf3;
+}
+
+@media (max-width: 900px) {
+
+    .personel-gorev-item {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .personel-gorev-status {
+        width: 100%;
+    }
 }

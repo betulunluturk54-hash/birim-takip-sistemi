@@ -545,6 +545,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
             <div class="topbar-right">
 
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
+
                 <div class="theme-switch">
 
                     <button

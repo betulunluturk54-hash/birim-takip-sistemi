@@ -11,284 +11,255 @@ require_once "../config/database.php";
 
 
 /* =========================================================
-   EVRAK ID
+   DOSYA ID
 ========================================================= */
 
-$id = (int) ($_GET["id"] ?? 0);
-
-if ($id <= 0) {
-    http_response_code(400);
-    die("Geçersiz evrak ID.");
-}
-
-
-/* =========================================================
-   KULLANICI ROLÜ
-========================================================= */
-
-$rol = $_SESSION["rol"] ?? "";
-
-$kullaniciId = (int) (
-    $_SESSION["kullanici_id"] ?? 0
+$dosyaId = (int) (
+    $_GET["dosya_id"] ?? 0
 );
 
 
 /* =========================================================
-   EVRAKI GETİR
+   ESKİ SİSTEM İÇİN EVRAK ID
 ========================================================= */
 
-/*
-   YÖNETİCİ:
-   - Tüm evrakları görüntüleyebilir.
-
-   PERSONEL:
-   - Sadece kendi personel kaydına bağlı
-     evrakları görüntüleyebilir.
-
-   İlişki:
-   kullanicilar.id
-        ↓
-   personeller.kullanici_id
-        ↓
-   evraklar.personel_id
-*/
+$evrakId = (int) (
+    $_GET["id"] ?? 0
+);
 
 
-if ($rol === "yonetici") {
+/* =========================================================
+   GEÇERLİ ID KONTROLÜ
+========================================================= */
+
+if (
+    $dosyaId <= 0 &&
+    $evrakId <= 0
+) {
+    http_response_code(400);
+
+    exit("Geçersiz dosya.");
+}
+
+
+/* =========================================================
+   DOSYA BİLGİLERİNİ GETİR
+========================================================= */
+
+if ($dosyaId > 0) {
+
+    /*
+       Yeni çoklu dosya sistemi.
+    */
 
     $stmt = $db->prepare("
         SELECT
-            id,
-            evrak_adi,
-            dosya_yolu
+            ed.id AS dosya_id,
+            ed.evrak_id,
+            ed.dosya_adi,
+            ed.dosya_yolu,
+            e.personel_id
+        FROM evrak_dosyalar ed
+        INNER JOIN evraklar e
+            ON e.id = ed.evrak_id
+        WHERE ed.id = ?
+        LIMIT 1
+    ");
+
+    $stmt->execute([
+        $dosyaId
+    ]);
+
+    $dosya = $stmt->fetch(
+        PDO::FETCH_ASSOC
+    );
+
+} else {
+
+    /*
+       Eski tekli dosya sistemi.
+    */
+
+    $stmt = $db->prepare("
+        SELECT
+            id AS evrak_id,
+            dosya_yolu,
+            personel_id,
+            evrak_adi AS dosya_adi
         FROM evraklar
         WHERE id = ?
         LIMIT 1
     ");
 
     $stmt->execute([
-        $id
+        $evrakId
     ]);
 
-} else {
+    $dosya = $stmt->fetch(
+        PDO::FETCH_ASSOC
+    );
+}
+
+
+/* =========================================================
+   DOSYA KONTROLÜ
+========================================================= */
+
+if (!$dosya) {
+
+    http_response_code(404);
+
+    exit("Dosya veritabanında bulunamadı.");
+}
+
+
+/* =========================================================
+   PERSONEL YETKİSİ
+========================================================= */
+
+$yoneticiMi = in_array(
+    $_SESSION["rol"] ?? "",
+    [
+        "yonetici",
+        "admin"
+    ],
+    true
+);
+
+
+/*
+   Personel yalnızca kendi evrakına erişebilir.
+*/
+
+if (!$yoneticiMi) {
 
     $stmt = $db->prepare("
         SELECT
-            e.id,
-            e.evrak_adi,
-            e.dosya_yolu
-        FROM evraklar e
-
-        INNER JOIN personeller p
-            ON e.personel_id = p.id
-
-        WHERE e.id = ?
+            p.id
+        FROM personeller p
+        WHERE p.id = ?
           AND p.kullanici_id = ?
-
         LIMIT 1
     ");
 
     $stmt->execute([
-        $id,
-        $kullaniciId
+        $dosya["personel_id"] ?? 0,
+        $_SESSION["kullanici_id"]
     ]);
-}
 
+    $yetkili =
+        $stmt->fetchColumn();
 
-$evrak =
-    $stmt->fetch(
-        PDO::FETCH_ASSOC
-    );
+    if (!$yetkili) {
 
+        http_response_code(403);
 
-/* =========================================================
-   EVRAK KONTROLÜ
-========================================================= */
-
-if (!$evrak) {
-
-    http_response_code(403);
-
-    die(
-        "Bu evraka erişim yetkiniz yok."
-    );
-}
-
-
-/* =========================================================
-   DOSYA YOLU KONTROLÜ
-========================================================= */
-
-$kayitliYol = trim(
-    $evrak["dosya_yolu"] ?? ""
-);
-
-if ($kayitliYol === "") {
-
-    http_response_code(404);
-
-    die(
-        "Bu evraka ait dosya yolu bulunmuyor."
-    );
-}
-
-
-/* =========================================================
-   MUHTEMEL DOSYA YOLLARI
-========================================================= */
-
-/*
-   Veritabanında örneğin:
-
-   uploads/evraklar/dosya.pdf
-
-   tutuluyorsa aşağıdaki yollar kontrol edilir.
-*/
-
-$olasiYollar = [];
-
-
-/* 1. pages klasörü içinden */
-
-$olasiYollar[] =
-    __DIR__ . "/" . ltrim(
-        $kayitliYol,
-        "/\\"
-    );
-
-
-/* 2. Proje ana klasörü içinden */
-
-$olasiYollar[] =
-    dirname(__DIR__) . "/" . ltrim(
-        $kayitliYol,
-        "/\\"
-    );
-
-
-/* 3. Eğer veritabanında pages/ ile birlikte kayıt varsa */
-
-$temizYol =
-    ltrim(
-        $kayitliYol,
-        "/\\"
-    );
-
-if (
-    str_starts_with(
-        $temizYol,
-        "pages/"
-    )
-) {
-
-    $olasiYollar[] =
-        dirname(__DIR__) . "/" . $temizYol;
-}
-
-
-/* =========================================================
-   GERÇEK DOSYAYI BUL
-========================================================= */
-
-$gercekDosya = null;
-
-foreach ($olasiYollar as $yol) {
-
-    if (
-        is_file($yol) &&
-        is_readable($yol)
-    ) {
-
-        $gercekDosya = $yol;
-
-        break;
+        exit("Bu dosyayı görüntüleme yetkiniz yok.");
     }
 }
 
 
-if ($gercekDosya === null) {
+/* =========================================================
+   DOSYA YOLU
+========================================================= */
+
+$dosyaYolu = trim(
+    $dosya["dosya_yolu"] ?? ""
+);
+
+
+if ($dosyaYolu === "") {
 
     http_response_code(404);
 
-    echo "<h2>Dosya bulunamadı.</h2>";
-
-    echo "<p>Veritabanındaki dosya yolu:</p>";
-
-    echo "<pre>" .
-        htmlspecialchars(
-            $kayitliYol,
-            ENT_QUOTES,
-            "UTF-8"
-        ) .
-        "</pre>";
-
-    exit;
+    exit("Dosya yolu bulunamadı.");
 }
 
 
-/* =========================================================
-   DOSYA UZANTISI
-========================================================= */
+/*
+   Windows / Linux yol ayrımını
+   normalize ediyoruz.
+*/
 
-$uzanti = strtolower(
-    pathinfo(
-        $gercekDosya,
-        PATHINFO_EXTENSION
-    )
+$dosyaYolu = str_replace(
+    "\\",
+    "/",
+    $dosyaYolu
+);
+
+
+/*
+   Başındaki / işaretlerini temizle.
+*/
+
+$dosyaYolu = ltrim(
+    $dosyaYolu,
+    "/"
 );
 
 
 /* =========================================================
-   MIME TÜRÜ
+   GERÇEK DOSYA YOLU
 ========================================================= */
 
-$mimeTurleri = [
+/*
+   Veritabanındaki yol:
+   
+   uploads/evraklar/dosya.png
 
-    "pdf" =>
-        "application/pdf",
+   Proje kökü:
 
-    "jpg" =>
-        "image/jpeg",
+   C:\wamp64\www\BirimTakipSistemi
+*/
 
-    "jpeg" =>
-        "image/jpeg",
+$gercekDosya =
+    __DIR__ .
+    DIRECTORY_SEPARATOR .
+    str_replace(
+        "/",
+        DIRECTORY_SEPARATOR,
+        $dosyaYolu
+    );
 
-    "png" =>
-        "image/png",
+/* =========================================================
+   DOSYA KONTROLÜ
+========================================================= */
 
-    "doc" =>
-        "application/msword",
+if (!is_file($gercekDosya)) {
 
-    "docx" =>
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    http_response_code(404);
 
-    "xls" =>
-        "application/vnd.ms-excel",
-
-    "xlsx" =>
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-];
-
-
-$mime =
-    $mimeTurleri[$uzanti]
-    ?? "application/octet-stream";
+    exit(
+        "Dosya bulunamadı.\n\n" .
+        "Veritabanındaki yol:\n" .
+        $dosyaYolu
+    );
+}
 
 
 /* =========================================================
-   DOSYA ADI
+   DOSYA TÜRÜ
 ========================================================= */
 
-$dosyaAdi =
-    basename($gercekDosya);
+$mimeType =
+    mime_content_type(
+        $gercekDosya
+    );
+
+
+if (!$mimeType) {
+
+    $mimeType =
+        "application/octet-stream";
+}
 
 
 /* =========================================================
-   HEADER
+   DOSYA GÖNDER
 ========================================================= */
 
 header(
-    "Content-Type: " . $mime
+    "Content-Type: " . $mimeType
 );
 
 header(
@@ -297,21 +268,15 @@ header(
 );
 
 header(
-    'Content-Disposition: inline; filename="' .
-    str_replace(
-        '"',
-        "",
-        $dosyaAdi
+    "Content-Disposition: inline; filename=\"" .
+    basename(
+        $dosya["dosya_adi"] ?? "dosya"
     ) .
-    '"'
+    "\""
 );
 
 header(
-    "Cache-Control: private, max-age=0, must-revalidate"
-);
-
-header(
-    "Pragma: public"
+    "X-Content-Type-Options: nosniff"
 );
 
 
@@ -319,6 +284,8 @@ header(
    DOSYAYI GÖNDER
 ========================================================= */
 
-readfile($gercekDosya);
+readfile(
+    $gercekDosya
+);
 
 exit;

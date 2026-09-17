@@ -27,17 +27,26 @@ if (!$id) {
 
 
 /* ==========================================
-   EVRAK BİLGİSİNİ GETİR
+   EVRAK VE DOSYALARINI GETİR
 ========================================== */
 
-$sql = "SELECT dosya_yolu
-        FROM evraklar
-        WHERE id = ?";
+$stmt = $db->prepare("
+    SELECT
+        id,
+        dosya_yolu
+    FROM evraklar
+    WHERE id = ?
+    LIMIT 1
+");
 
-$stmt = $db->prepare($sql);
-$stmt->execute([$id]);
+$stmt->execute([
+    $id
+]);
 
-$evrak = $stmt->fetch(PDO::FETCH_ASSOC);
+$evrak = $stmt->fetch(
+    PDO::FETCH_ASSOC
+);
+
 
 if (!$evrak) {
     header("Location: evraklar.php");
@@ -46,28 +55,169 @@ if (!$evrak) {
 
 
 /* ==========================================
-   VERİTABANINDAN SİL
+   ÇOKLU DOSYALARI GETİR
 ========================================== */
 
-$sql = "DELETE FROM evraklar
-        WHERE id = ?";
+$stmt = $db->prepare("
+    SELECT
+        id,
+        dosya_yolu
+    FROM evrak_dosyalar
+    WHERE evrak_id = ?
+");
 
-$stmt = $db->prepare($sql);
-$stmt->execute([$id]);
+$stmt->execute([
+    $id
+]);
+
+$dosyalar = $stmt->fetchAll(
+    PDO::FETCH_ASSOC
+);
 
 
 /* ==========================================
-   YÜKLENEN DOSYAYI DA SİL
+   TRANSACTION BAŞLAT
 ========================================== */
+
+try {
+
+    $db->beginTransaction();
+
+
+    /* ======================================
+       DOSYA KAYITLARINI VERİTABANINDAN SİL
+    ====================================== */
+
+    $stmt = $db->prepare("
+        DELETE FROM evrak_dosyalar
+        WHERE evrak_id = ?
+    ");
+
+    $stmt->execute([
+        $id
+    ]);
+
+
+    /* ======================================
+       EVRAKI VERİTABANINDAN SİL
+    ====================================== */
+
+    $stmt = $db->prepare("
+        DELETE FROM evraklar
+        WHERE id = ?
+    ");
+
+    $stmt->execute([
+        $id
+    ]);
+
+
+    /* ======================================
+       TRANSACTION TAMAMLA
+    ====================================== */
+
+    $db->commit();
+
+
+} catch (Throwable $e) {
+
+    if ($db->inTransaction()) {
+        $db->rollBack();
+    }
+
+    header(
+        "Location: evraklar.php"
+    );
+
+    exit;
+}
+
+
+/* ==========================================
+   FİZİKSEL DOSYALARI SİL
+========================================== */
+
+
+/* ------------------------------------------
+   YENİ ÇOKLU DOSYA SİSTEMİ
+------------------------------------------ */
+
+foreach ($dosyalar as $dosya) {
+
+    $dosyaYolu = trim(
+        $dosya["dosya_yolu"] ?? ""
+    );
+
+    if ($dosyaYolu === "") {
+        continue;
+    }
+
+
+    $dosyaYolu = str_replace(
+        "\\",
+        "/",
+        $dosyaYolu
+    );
+
+
+    $dosyaYolu = ltrim(
+        $dosyaYolu,
+        "/"
+    );
+
+
+    $gercekDosya =
+        __DIR__ .
+        DIRECTORY_SEPARATOR .
+        str_replace(
+            "/",
+            DIRECTORY_SEPARATOR,
+            $dosyaYolu
+        );
+
+
+    if (is_file($gercekDosya)) {
+        unlink($gercekDosya);
+    }
+}
+
+
+/* ------------------------------------------
+   ESKİ TEKLİ DOSYA SİSTEMİ
+------------------------------------------ */
 
 if (!empty($evrak["dosya_yolu"])) {
 
-    $dosya = __DIR__
-           . "/../"
-           . $evrak["dosya_yolu"];
+    $dosyaYolu = trim(
+        $evrak["dosya_yolu"]
+    );
 
-    if (file_exists($dosya)) {
-        unlink($dosya);
+
+    $dosyaYolu = str_replace(
+        "\\",
+        "/",
+        $dosyaYolu
+    );
+
+
+    $dosyaYolu = ltrim(
+        $dosyaYolu,
+        "/"
+    );
+
+
+    $gercekDosya =
+        __DIR__ .
+        DIRECTORY_SEPARATOR .
+        str_replace(
+            "/",
+            DIRECTORY_SEPARATOR,
+            $dosyaYolu
+        );
+
+
+    if (is_file($gercekDosya)) {
+        unlink($gercekDosya);
     }
 }
 
@@ -76,5 +226,8 @@ if (!empty($evrak["dosya_yolu"])) {
    LİSTEYE GERİ DÖN
 ========================================== */
 
-header("Location: evraklar.php");
+header(
+    "Location: evraklar.php?mesaj=evrak_silindi"
+);
+
 exit;

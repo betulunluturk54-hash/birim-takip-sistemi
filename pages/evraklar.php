@@ -8,6 +8,71 @@ if (!isset($_SESSION["kullanici_id"])) {
 }
 
 require_once "../config/database.php";
+
+
+/* ==========================================
+   GİRİŞ YAPAN KULLANICI
+========================================== */
+
+$kullaniciStmt = $db->prepare("
+    SELECT
+        id,
+        ad,
+        soyad,
+        kullanici_adi,
+        rol
+    FROM kullanicilar
+    WHERE id = ?
+    LIMIT 1
+");
+
+$kullaniciStmt->execute([
+    $_SESSION["kullanici_id"]
+]);
+
+$giris_yapan_kullanici = $kullaniciStmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$giris_yapan_kullanici) {
+    session_destroy();
+    header("Location: ../login.php");
+    exit;
+}
+
+
+/* ==========================================
+   AD SOYAD
+========================================== */
+
+$kullanici_ad_soyad = trim(
+    ($giris_yapan_kullanici["ad"] ?? "") .
+    " " .
+    ($giris_yapan_kullanici["soyad"] ?? "")
+);
+
+if ($kullanici_ad_soyad === "") {
+    $kullanici_ad_soyad = $giris_yapan_kullanici["kullanici_adi"];
+}
+
+
+/* ==========================================
+   ROL ETİKETİ
+========================================== */
+
+if (
+    in_array(
+        $giris_yapan_kullanici["rol"],
+        ["yonetici", "admin"],
+        true
+    )
+) {
+    $rol_etiketi = "Yönetici";
+} elseif ($giris_yapan_kullanici["rol"] === "personel") {
+    $rol_etiketi = "Personel";
+} else {
+    $rol_etiketi = "Kullanıcı";
+}
+
+
 /* =========================================================
    YETKİ KONTROLÜ
 ========================================================= */
@@ -47,10 +112,10 @@ if (!$yoneticiMi) {
    YARDIMCI FONKSİYON
 ========================================================= */
 
-function temizle($veri)
+function temizle(string $veri): string
 {
     return htmlspecialchars(
-        $veri ?? "",
+        $veri,
         ENT_QUOTES,
         "UTF-8"
     );
@@ -100,14 +165,17 @@ $izinliGorunumler = [
     "tum",
     "beklemede",
     "onaylandi",
-    "reddedildi"
+    "reddedildi",
+    "arsivlendi"
 ];
 
-if (!in_array(
-    $gorunum,
-    $izinliGorunumler,
-    true
-)) {
+if (
+    !in_array(
+        $gorunum,
+        $izinliGorunumler,
+        true
+    )
+) {
     $gorunum = "tum";
 }
 
@@ -119,6 +187,496 @@ if (!in_array(
 $arama = trim(
     $_GET["arama"] ?? ""
 );
+
+/* =========================================================
+   DOSYA / EVRAK SİLME
+========================================================= */
+
+if (
+    $_SERVER["REQUEST_METHOD"] === "POST" &&
+    (
+        ($_POST["islem"] ?? "") === "dosya_sil" ||
+        ($_POST["islem"] ?? "") === "evrak_sil"
+    )
+) {
+
+    /* =====================================================
+       SADECE YÖNETİCİ
+    ===================================================== */
+
+    if (!$yoneticiMi) {
+
+        $hata =
+            "Bu işlemi gerçekleştirme yetkiniz yok.";
+
+    } else {
+
+        $islem =
+            $_POST["islem"] ?? "";
+
+
+        /* =================================================
+           TEK DOSYA SİL
+        ================================================= */
+
+        if ($islem === "dosya_sil") {
+
+            $dosyaId =
+                (int) (
+                    $_POST["dosya_id"] ?? 0
+                );
+
+
+            if ($dosyaId <= 0) {
+
+                $hata =
+                    "Geçersiz dosya.";
+
+            } else {
+
+                $stmt = $db->prepare("
+                    SELECT
+                        id,
+                        evrak_id,
+                        dosya_yolu
+                    FROM evrak_dosyalar
+                    WHERE id = ?
+                    LIMIT 1
+                ");
+
+                $stmt->execute([
+                    $dosyaId
+                ]);
+
+                $silDosya =
+                    $stmt->fetch(
+                        PDO::FETCH_ASSOC
+                    );
+
+
+                if (!$silDosya) {
+
+                    $hata =
+                        "Silinecek dosya bulunamadı.";
+
+                } else {
+
+                    $dosyaYolu =
+                        trim(
+                            $silDosya["dosya_yolu"] ?? ""
+                        );
+
+                    $stmt = $db->prepare("
+                        DELETE FROM evrak_dosyalar
+                        WHERE id = ?
+                    ");
+
+                    $basarili =
+                        $stmt->execute([
+                            $dosyaId
+                        ]);
+
+
+                    if ($basarili) {
+
+                        if ($dosyaYolu !== "") {
+
+                            $dosyaYolu =
+                                str_replace(
+                                    "\\",
+                                    "/",
+                                    $dosyaYolu
+                                );
+
+                            $dosyaYolu =
+                                ltrim(
+                                    $dosyaYolu,
+                                    "/"
+                                );
+
+
+                            $muhtemelDosyalar = [
+                                dirname(__DIR__) .
+                                DIRECTORY_SEPARATOR .
+                                str_replace(
+                                    "/",
+                                    DIRECTORY_SEPARATOR,
+                                    $dosyaYolu
+                                ),
+
+                                __DIR__ .
+                                DIRECTORY_SEPARATOR .
+                                str_replace(
+                                    "/",
+                                    DIRECTORY_SEPARATOR,
+                                    $dosyaYolu
+                                )
+                            ];
+
+
+                            foreach (
+                                $muhtemelDosyalar
+                                as $gercekDosya
+                            ) {
+
+                                if (
+                                    is_file(
+                                        $gercekDosya
+                                    )
+                                ) {
+
+                                    unlink(
+                                        $gercekDosya
+                                    );
+
+                                    break;
+                                }
+                            }
+                        }
+
+
+                        $mesaj =
+                            "Dosya başarıyla silindi.";
+
+                    } else {
+
+                        $hata =
+                            "Dosya silinemedi.";
+                    }
+                }
+            }
+        }
+
+
+        /* =================================================
+           EVRAKI TAMAMEN SİL
+        ================================================= */
+
+        if ($islem === "evrak_sil") {
+
+            $evrakId =
+                (int) (
+                    $_POST["evrak_id"] ?? 0
+                );
+
+
+            if ($evrakId <= 0) {
+
+                $hata =
+                    "Geçersiz evrak.";
+
+            } else {
+
+                /* =========================================
+                   EVRAKA AİT DOSYALARI GETİR
+                ========================================= */
+
+                $stmt = $db->prepare("
+                    SELECT
+                        id,
+                        dosya_yolu
+                    FROM evrak_dosyalar
+                    WHERE evrak_id = ?
+                ");
+
+                $stmt->execute([
+                    $evrakId
+                ]);
+
+                $dosyalar =
+                    $stmt->fetchAll(
+                        PDO::FETCH_ASSOC
+                    );
+
+
+                /* =========================================
+                   DOSYA KAYITLARINI VERİTABANINDAN SİL
+                ========================================= */
+
+                $stmt = $db->prepare("
+                    DELETE FROM evrak_dosyalar
+                    WHERE evrak_id = ?
+                ");
+
+                $stmt->execute([
+                    $evrakId
+                ]);
+
+
+                /* =========================================
+                   FİZİKSEL DOSYALARI SİL
+                ========================================= */
+
+                foreach (
+                    $dosyalar
+                    as $silDosya
+                ) {
+
+                    $dosyaYolu =
+                        trim(
+                            $silDosya["dosya_yolu"] ?? ""
+                        );
+
+
+                    if ($dosyaYolu === "") {
+                        continue;
+                    }
+
+
+                    $dosyaYolu =
+                        str_replace(
+                            "\\",
+                            "/",
+                            $dosyaYolu
+                        );
+
+                    $dosyaYolu =
+                        ltrim(
+                            $dosyaYolu,
+                            "/"
+                        );
+
+
+                    $muhtemelDosyalar = [
+                        dirname(__DIR__) .
+                        DIRECTORY_SEPARATOR .
+                        str_replace(
+                            "/",
+                            DIRECTORY_SEPARATOR,
+                            $dosyaYolu
+                        ),
+
+                        __DIR__ .
+                        DIRECTORY_SEPARATOR .
+                        str_replace(
+                            "/",
+                            DIRECTORY_SEPARATOR,
+                            $dosyaYolu
+                        )
+                    ];
+
+
+                    foreach (
+                        $muhtemelDosyalar
+                        as $gercekDosya
+                    ) {
+
+                        if (
+                            is_file(
+                                $gercekDosya
+                            )
+                        ) {
+
+                            unlink(
+                                $gercekDosya
+                            );
+
+                            break;
+                        }
+                    }
+                }
+
+
+                /* =========================================
+                   ESKİ TEKLİ DOSYA YOLUNU DA GETİR
+                ========================================= */
+
+                $stmt = $db->prepare("
+                    SELECT
+                        dosya_yolu
+                    FROM evraklar
+                    WHERE id = ?
+                    LIMIT 1
+                ");
+
+                $stmt->execute([
+                    $evrakId
+                ]);
+
+                $eskiEvrak =
+                    $stmt->fetch(
+                        PDO::FETCH_ASSOC
+                    );
+
+
+                /* =========================================
+                   ESKİ DOSYA VARSA FİZİKSEL OLARAK SİL
+                ========================================= */
+
+                if (
+                    !empty(
+                        $eskiEvrak["dosya_yolu"]
+                    )
+                ) {
+
+                    $eskiDosyaYolu =
+                        trim(
+                            $eskiEvrak["dosya_yolu"]
+                        );
+
+
+                    $eskiDosyaYolu =
+                        str_replace(
+                            "\\",
+                            "/",
+                            $eskiDosyaYolu
+                        );
+
+                    $eskiDosyaYolu =
+                        ltrim(
+                            $eskiDosyaYolu,
+                            "/"
+                        );
+
+
+                    $eskiGercekDosya =
+                        __DIR__ .
+                        DIRECTORY_SEPARATOR .
+                        str_replace(
+                            "/",
+                            DIRECTORY_SEPARATOR,
+                            $eskiDosyaYolu
+                        );
+
+
+                    if (
+                        is_file(
+                            $eskiGercekDosya
+                        )
+                    ) {
+
+                        unlink(
+                            $eskiGercekDosya
+                        );
+                    }
+                }
+
+
+                /* =========================================
+                   ANA EVRAK KAYDINI SİL
+                ========================================= */
+
+                $stmt = $db->prepare("
+                    DELETE FROM evraklar
+                    WHERE id = ?
+                ");
+
+                $basarili =
+                    $stmt->execute([
+                        $evrakId
+                    ]);
+
+
+                if ($basarili) {
+
+                    header(
+                        "Location: evraklar.php?mesaj=evrak_silindi"
+                    );
+
+                    exit;
+
+                } else {
+
+                    $hata =
+                        "Evrak silinemedi.";
+                }
+            }
+        }
+    }
+}
+
+
+/* =========================================================
+   EVRAK ARŞİVLE / ARŞİVDEN ÇIKAR
+========================================================= */
+
+if (
+    $_SERVER["REQUEST_METHOD"] === "POST" &&
+    (
+        ($_POST["islem"] ?? "") === "arsivle" ||
+        ($_POST["islem"] ?? "") === "arsivden_cikar"
+    )
+) {
+
+    if (!$yoneticiMi) {
+
+        $hata =
+            "Bu işlemi gerçekleştirme yetkiniz yok.";
+
+    } else {
+
+        $evrakId =
+            (int) (
+                $_POST["evrak_id"] ?? 0
+            );
+
+        $islem =
+            $_POST["islem"] ?? "";
+
+        if ($evrakId <= 0) {
+
+            $hata =
+                "Geçersiz evrak.";
+
+        } else {
+
+            if ($islem === "arsivle") {
+
+                $stmt = $db->prepare("
+                    UPDATE evraklar
+                    SET durum = 'arsivlendi'
+                    WHERE id = ?
+                ");
+
+                $basarili =
+                    $stmt->execute([
+                        $evrakId
+                    ]);
+
+                if ($basarili) {
+
+                    header(
+                        "Location: evraklar.php?mesaj=arsivlendi"
+                    );
+
+                    exit;
+
+                } else {
+
+                    $hata =
+                        "Evrak arşivlenemedi.";
+                }
+
+            } else {
+
+                $stmt = $db->prepare("
+                    UPDATE evraklar
+                    SET durum = 'beklemede'
+                    WHERE id = ?
+                ");
+
+                $basarili =
+                    $stmt->execute([
+                        $evrakId
+                    ]);
+
+                if ($basarili) {
+
+                    header(
+                        "Location: evraklar.php?mesaj=arsivden_cikarildi"
+                    );
+
+                    exit;
+
+                } else {
+
+                    $hata =
+                        "Evrak arşivden çıkarılamadı.";
+                }
+            }
+        }
+    }
+}
 
 
 /* =========================================================
@@ -134,24 +692,22 @@ if (
         $_POST["id"] ?? 0
     );
 
-    $yeniDurum =
-        trim(
-            $_POST["durum"] ?? ""
-        );
+    $yeniDurum = trim(
+        $_POST["durum"] ?? ""
+    );
 
-    $redNedeni =
-        trim(
-            $_POST["red_nedeni"] ?? ""
-        );
+    $redNedeni = trim(
+        $_POST["red_nedeni"] ?? ""
+    );
 
 
     if ($id <= 0) {
 
         $hata = "Geçersiz evrak.";
-        } elseif (!$yoneticiMi) {
 
-    $hata = "Bu işlemi gerçekleştirme yetkiniz yok.";
+    } elseif (!$yoneticiMi) {
 
+        $hata = "Bu işlemi gerçekleştirme yetkiniz yok.";
 
     } elseif (
         !in_array(
@@ -159,22 +715,21 @@ if (
             [
                 "beklemede",
                 "onaylandi",
-                "reddedildi"
+                "reddedildi",
+                "arsivlendi"
             ],
             true
         )
     ) {
 
-        $hata =
-            "Geçersiz evrak durumu.";
+        $hata = "Geçersiz evrak durumu.";
 
     } elseif (
         $yeniDurum === "reddedildi" &&
         $redNedeni === ""
     ) {
 
-        $hata =
-            "Reddetme nedeni belirtilmelidir.";
+        $hata = "Reddetme nedeni belirtilmelidir.";
 
     } else {
 
@@ -197,18 +752,15 @@ if (
 
         if ($yeniDurum === "onaylandi") {
 
-            $mesaj =
-                "Evrak başarıyla onaylandı.";
+            $mesaj = "Evrak başarıyla onaylandı.";
 
         } elseif ($yeniDurum === "reddedildi") {
 
-            $mesaj =
-                "Evrak reddedildi.";
+            $mesaj = "Evrak reddedildi.";
 
         } else {
 
-            $mesaj =
-                "Evrak tekrar beklemeye alındı.";
+            $mesaj = "Evrak tekrar beklemeye alındı.";
         }
     }
 }
@@ -226,32 +778,34 @@ if (isset($_GET["duzenle"])) {
 
     if ($id > 0) {
 
-if ($yoneticiMi) {
+        if ($yoneticiMi) {
 
-    $stmt = $db->prepare("
-        SELECT *
-        FROM evraklar
-        WHERE id = ?
-    ");
+            $stmt = $db->prepare("
+                SELECT *
+                FROM evraklar
+                WHERE id = ?
+                LIMIT 1
+            ");
 
-    $stmt->execute([
-        $id
-    ]);
+            $stmt->execute([
+                $id
+            ]);
 
-} else {
+        } else {
 
-    $stmt = $db->prepare("
-        SELECT *
-        FROM evraklar
-        WHERE id = ?
-          AND personel_id = ?
-    ");
+            $stmt = $db->prepare("
+                SELECT *
+                FROM evraklar
+                WHERE id = ?
+                  AND personel_id = ?
+                LIMIT 1
+            ");
 
-    $stmt->execute([
-        $id,
-        $kendiPersonelId
-    ]);
-}
+            $stmt->execute([
+                $id,
+                $kendiPersonelId
+            ]);
+        }
 
         $duzenlenecekEvrak =
             $stmt->fetch(
@@ -280,10 +834,10 @@ if (
         (int) (
             $_POST["personel_id"] ?? 0
         );
-        if (!$yoneticiMi) {
 
-    $personel_id = $kendiPersonelId;
-}
+    if (!$yoneticiMi) {
+        $personel_id = $kendiPersonelId;
+    }
 
     $evrak_adi =
         trim(
@@ -324,99 +878,208 @@ if (
             "Lütfen evrak tarihini girin.";
     }
 
-
     /* =====================================================
-       DOSYA
-       DOSYA ARTIK ZORUNLU DEĞİL
+       DOSYALAR
+       BİRDEN FAZLA DOSYA YÜKLEME
     ===================================================== */
 
     $yeniDosyaYolu = null;
+    $yuklenenDosyalar = [];
 
     if (
         $hata === "" &&
         isset($_FILES["evrak_dosyasi"])
     ) {
 
-        $dosya =
-            $_FILES["evrak_dosyasi"];
-
+        $dosya = $_FILES["evrak_dosyasi"];
 
         if (
-            $dosya["error"] !== UPLOAD_ERR_NO_FILE
+            is_array($dosya["name"])
         ) {
 
-            if (
-                $dosya["error"] !== UPLOAD_ERR_OK
+            $dosyaSayisi =
+                count($dosya["name"]);
+
+            for (
+                $i = 0;
+                $i < $dosyaSayisi;
+                $i++
             ) {
 
-                $hata =
-                    "Dosya yüklenirken bir hata oluştu.";
+                if (
+                    $dosya["error"][$i] === UPLOAD_ERR_NO_FILE
+                ) {
+                    continue;
+                }
 
-            } elseif (
-                $dosya["size"] > $maxDosyaBoyutu
-            ) {
+                if (
+                    $dosya["error"][$i] !== UPLOAD_ERR_OK
+                ) {
 
-                $hata =
-                    "Dosya boyutu en fazla 10 MB olabilir.";
+                    $hata =
+                        "Dosyalardan biri yüklenirken bir hata oluştu.";
 
-            } else {
+                    break;
+                }
+
+                if (
+                    $dosya["size"][$i] > $maxDosyaBoyutu
+                ) {
+
+                    $hata =
+                        "Dosyalardan birinin boyutu 10 MB sınırını aşıyor.";
+
+                    break;
+                }
 
                 $uzanti =
                     strtolower(
                         pathinfo(
-                            $dosya["name"],
+                            $dosya["name"][$i],
                             PATHINFO_EXTENSION
                         )
                     );
 
-
-                if (!in_array(
-                    $uzanti,
-                    $izinVerilenUzantilar,
-                    true
-                )) {
+                if (
+                    !in_array(
+                        $uzanti,
+                        $izinVerilenUzantilar,
+                        true
+                    )
+                ) {
 
                     $hata =
-                        "Bu dosya türüne izin verilmiyor.";
+                        "Dosyalardan birinin türüne izin verilmiyor.";
+
+                    break;
+                }
+
+                $guvenliDosyaAdi =
+                    bin2hex(
+                        random_bytes(16)
+                    )
+                    . "_"
+                    . date("YmdHis")
+                    . "_"
+                    . $i
+                    . "."
+                    . $uzanti;
+
+                $hedef =
+                    $uploadDir .
+                    $guvenliDosyaAdi;
+
+                if (
+                    move_uploaded_file(
+                        $dosya["tmp_name"][$i],
+                        $hedef
+                    )
+                ) {
+
+                    $dosyaYolu =
+                        "uploads/evraklar/" .
+                        $guvenliDosyaAdi;
+
+                    $yuklenenDosyalar[] = [
+                        "dosya_adi" => basename($dosya["name"][$i]),
+                        "dosya_yolu" => $dosyaYolu
+                    ];
+
+                    if ($yeniDosyaYolu === null) {
+                        $yeniDosyaYolu = $dosyaYolu;
+                    }
 
                 } else {
 
-                    $guvenliDosyaAdi =
-                        bin2hex(
-                            random_bytes(16)
-                        )
-                        . "_"
-                        . date("YmdHis")
-                        . "."
-                        . $uzanti;
+                    $hata =
+                        "Dosyalardan biri sunucuya kaydedilemedi.";
 
+                    break;
+                }
+            }
+        }
+        else {
 
-                    $hedef =
-                        $uploadDir .
-                        $guvenliDosyaAdi;
+            if (
+                $dosya["error"] !== UPLOAD_ERR_NO_FILE
+            ) {
 
+                if (
+                    $dosya["error"] !== UPLOAD_ERR_OK
+                ) {
+
+                    $hata =
+                        "Dosya yüklenirken bir hata oluştu.";
+
+                } elseif (
+                    $dosya["size"] > $maxDosyaBoyutu
+                ) {
+
+                    $hata =
+                        "Dosya boyutu en fazla 10 MB olabilir.";
+
+                } else {
+
+                    $uzanti =
+                        strtolower(
+                            pathinfo(
+                                $dosya["name"],
+                                PATHINFO_EXTENSION
+                            )
+                        );
 
                     if (
-                        move_uploaded_file(
-                            $dosya["tmp_name"],
-                            $hedef
+                        !in_array(
+                            $uzanti,
+                            $izinVerilenUzantilar,
+                            true
                         )
                     ) {
 
-                        $yeniDosyaYolu =
-                            "uploads/evraklar/" .
-                            $guvenliDosyaAdi;
+                        $hata =
+                            "Bu dosya türüne izin verilmiyor.";
 
                     } else {
 
-                        $hata =
-                            "Dosya sunucuya kaydedilemedi.";
+                        $guvenliDosyaAdi =
+                            bin2hex(
+                                random_bytes(16)
+                            )
+                            . "_"
+                            . date("YmdHis")
+                            . "."
+                            . $uzanti;
+
+                        $hedef =
+                            $uploadDir .
+                            $guvenliDosyaAdi;
+
+                        if (
+                            move_uploaded_file(
+                                $dosya["tmp_name"],
+                                $hedef
+                            )
+                        ) {
+
+                            $yeniDosyaYolu =
+                                "uploads/evraklar/" .
+                                $guvenliDosyaAdi;
+
+                            $yuklenenDosyalar[] = [
+                                "dosya_adi" => basename($dosya["name"]),
+                                "dosya_yolu" => $yeniDosyaYolu
+                            ];
+
+                        } else {
+
+                            $hata =
+                                "Dosya sunucuya kaydedilemedi.";
+                        }
                     }
                 }
             }
         }
     }
-
 
     /* =====================================================
        YENİ EVRAK
@@ -445,7 +1108,6 @@ if (
             )
         ");
 
-
         $basarili =
             $stmt->execute([
                 $evrak_adi,
@@ -463,6 +1125,39 @@ if (
 
         if ($basarili) {
 
+            $evrakId =
+                (int) $db->lastInsertId();
+
+            if (
+                !empty($yuklenenDosyalar)
+            ) {
+
+                $dosyaStmt = $db->prepare("
+                    INSERT INTO evrak_dosyalar
+                    (
+                        evrak_id,
+                        dosya_adi,
+                        dosya_yolu
+                    )
+                    VALUES
+                    (
+                        ?, ?, ?
+                    )
+                ");
+
+                foreach (
+                    $yuklenenDosyalar
+                    as $dosya
+                ) {
+
+                    $dosyaStmt->execute([
+                        $evrakId,
+                        $dosya["dosya_adi"],
+                        $dosya["dosya_yolu"]
+                    ]);
+                }
+            }
+
             header(
                 "Location: evraklar.php?mesaj=eklendi"
             );
@@ -471,7 +1166,36 @@ if (
 
         } else {
 
-            if ($yeniDosyaYolu !== null) {
+            if (
+                !empty($yuklenenDosyalar)
+            ) {
+
+                foreach (
+                    $yuklenenDosyalar
+                    as $dosya
+                ) {
+
+                    $gercekDosya =
+                        __DIR__ .
+                        "/" .
+                        $dosya["dosya_yolu"];
+
+                    if (
+                        file_exists(
+                            $gercekDosya
+                        )
+                    ) {
+
+                        unlink(
+                            $gercekDosya
+                        );
+                    }
+                }
+            }
+
+            if (
+                $yeniDosyaYolu !== null
+            ) {
 
                 $gercekDosya =
                     __DIR__ .
@@ -490,12 +1214,10 @@ if (
                 }
             }
 
-
             $hata =
                 "Evrak kaydedilirken bir hata oluştu.";
         }
     }
-
 
     /* =====================================================
        EVRAK GÜNCELLE
@@ -511,7 +1233,6 @@ if (
                 $_POST["id"] ?? 0
             );
 
-
         if ($id <= 0) {
 
             $hata =
@@ -519,39 +1240,39 @@ if (
 
         } else {
 
-if ($yoneticiMi) {
+            if ($yoneticiMi) {
 
-    $stmt = $db->prepare("
-        SELECT *
-        FROM evraklar
-        WHERE id = ?
-    ");
+                $stmt = $db->prepare("
+                    SELECT *
+                    FROM evraklar
+                    WHERE id = ?
+                    LIMIT 1
+                ");
 
-    $stmt->execute([
-        $id
-    ]);
+                $stmt->execute([
+                    $id
+                ]);
 
-} else {
+            } else {
 
-    $stmt = $db->prepare("
-        SELECT *
-        FROM evraklar
-        WHERE id = ?
-          AND personel_id = ?
-    ");
+                $stmt = $db->prepare("
+                    SELECT *
+                    FROM evraklar
+                    WHERE id = ?
+                      AND personel_id = ?
+                    LIMIT 1
+                ");
 
-    $stmt->execute([
-        $id,
-        $kendiPersonelId
-    ]);
-}
-
+                $stmt->execute([
+                    $id,
+                    $kendiPersonelId
+                ]);
+            }
 
             $mevcut =
                 $stmt->fetch(
                     PDO::FETCH_ASSOC
                 );
-
 
             if (!$mevcut) {
 
@@ -560,43 +1281,17 @@ if ($yoneticiMi) {
 
             } else {
 
+                $dosyaYolu =
+                    $mevcut["dosya_yolu"] ?? null;
 
-                if ($yeniDosyaYolu !== null) {
-
-                    if (
-                        !empty(
-                            $mevcut["dosya_yolu"]
-                        )
-                    ) {
-
-                        $eskiDosya =
-                            __DIR__ .
-                            "/" .
-                            $mevcut["dosya_yolu"];
-
-
-                        if (
-                            file_exists(
-                                $eskiDosya
-                            )
-                        ) {
-
-                            unlink(
-                                $eskiDosya
-                            );
-                        }
+                if (
+                    !empty($yuklenenDosyalar)
+                ) {
+                    if (empty($dosyaYolu)) {
+                        $dosyaYolu =
+                            $yuklenenDosyalar[0]["dosya_yolu"];
                     }
-
-
-                    $dosyaYolu =
-                        $yeniDosyaYolu;
-
-                } else {
-
-                    $dosyaYolu =
-                        $mevcut["dosya_yolu"];
                 }
-
 
                 $stmt =
                     $db->prepare("
@@ -610,7 +1305,6 @@ if ($yoneticiMi) {
                             dosya_yolu = ?
                         WHERE id = ?
                     ");
-
 
                 $basarili =
                     $stmt->execute([
@@ -627,8 +1321,38 @@ if ($yoneticiMi) {
                         $id
                     ]);
 
-
                 if ($basarili) {
+
+                    if (
+                        !empty($yuklenenDosyalar)
+                    ) {
+
+                        $dosyaStmt =
+                            $db->prepare("
+                                INSERT INTO evrak_dosyalar
+                                (
+                                    evrak_id,
+                                    dosya_adi,
+                                    dosya_yolu
+                                )
+                                VALUES
+                                (
+                                    ?, ?, ?
+                                )
+                            ");
+
+                        foreach (
+                            $yuklenenDosyalar
+                            as $dosya
+                        ) {
+
+                            $dosyaStmt->execute([
+                                $id,
+                                $dosya["dosya_adi"],
+                                $dosya["dosya_yolu"]
+                            ]);
+                        }
+                    }
 
                     header(
                         "Location: evraklar.php?mesaj=guncellendi"
@@ -637,6 +1361,61 @@ if ($yoneticiMi) {
                     exit;
 
                 } else {
+
+                    if (
+                        !empty($yuklenenDosyalar)
+                    ) {
+
+                        foreach (
+                            $yuklenenDosyalar
+                            as $dosya
+                        ) {
+
+                            $dosyaYoluSil =
+                                trim(
+                                    $dosya["dosya_yolu"] ?? ""
+                                );
+
+                            if (
+                                $dosyaYoluSil === ""
+                            ) {
+                                continue;
+                            }
+
+                            $dosyaYoluSil =
+                                str_replace(
+                                    "\\",
+                                    "/",
+                                    $dosyaYoluSil
+                                );
+
+                            $dosyaYoluSil =
+                                ltrim(
+                                    $dosyaYoluSil,
+                                    "/"
+                                );
+
+                            $gercekDosya =
+                                __DIR__ .
+                                DIRECTORY_SEPARATOR .
+                                str_replace(
+                                    "/",
+                                    DIRECTORY_SEPARATOR,
+                                    $dosyaYoluSil
+                                );
+
+                            if (
+                                is_file(
+                                    $gercekDosya
+                                )
+                            ) {
+
+                                unlink(
+                                    $gercekDosya
+                                );
+                            }
+                        }
+                    }
 
                     $hata =
                         "Evrak güncellenirken bir hata oluştu.";
@@ -656,41 +1435,36 @@ if (isset($_GET["mesaj"])) {
     switch (
         $_GET["mesaj"]
     ) {
-
-        case "eklendi":
-
-            $mesaj =
-                "Evrak başarıyla eklendi.";
-
+        case "arsivlendi":
+            $mesaj = "Evrak başarıyla arşivlendi.";
             break;
 
+        case "arsivden_cikarildi":
+            $mesaj = "Evrak arşivden çıkarıldı.";
+            break;
+
+        case "eklendi":
+            $mesaj = "Evrak başarıyla eklendi.";
+            break;
 
         case "guncellendi":
-
-            $mesaj =
-                "Evrak başarıyla güncellendi.";
-
+            $mesaj = "Evrak başarıyla güncellendi.";
             break;
 
         case "onaylandi":
-
-            $mesaj =
-                "Evrak başarıyla onaylandı.";
-
+            $mesaj = "Evrak başarıyla onaylandı.";
             break;
 
         case "reddedildi":
+            $mesaj = "Evrak reddedildi.";
+            break;
 
-            $mesaj =
-                "Evrak reddedildi.";
-
+        case "evrak_silindi":
+            $mesaj = "Evrak ve bağlı dosyaları başarıyla silindi.";
             break;
 
         case "beklemede":
-
-            $mesaj =
-                "Evrak tekrar beklemeye alındı.";
-
+            $mesaj = "Evrak tekrar beklemeye alındı.";
             break;
     }
 }
@@ -699,6 +1473,7 @@ if (isset($_GET["mesaj"])) {
 /* =========================================================
    EVRAKLARI GETİR
 ========================================================= */
+
 $sql = "
     SELECT
         e.id,
@@ -724,6 +1499,7 @@ $sql = "
     WHERE 1 = 1
 ";
 
+
 $params = [];
 
 
@@ -748,7 +1524,9 @@ if (
    DURUM FİLTRESİ
 ========================================================= */
 
-if ($gorunum !== "tum") {
+if (
+    $gorunum !== "tum"
+) {
 
     $sql .= "
         AND e.durum = ?
@@ -763,7 +1541,9 @@ if ($gorunum !== "tum") {
    ARAMA
 ========================================================= */
 
-if ($arama !== "") {
+if (
+    $arama !== ""
+) {
 
     $sql .= "
         AND (
@@ -845,10 +1625,6 @@ if ($yoneticiMi) {
     ]);
 }
 
-$personeller =
-    $stmt->fetchAll(
-        PDO::FETCH_ASSOC
-    );
 
 $personeller =
     $stmt->fetchAll(
@@ -928,102 +1704,142 @@ $reddedilenEvrakSayisi =
         }
 
 
-        /* =========================================================
-           ÜST BAR ARAMA
-        ========================================================= */
+       /* =========================================================
+   PROFESYONEL ARAMA
+========================================================= */
 
-        .evrak-topbar-search {
-            display: flex;
-            align-items: center;
-            position: relative;
-        }
+.evrak-topbar-search {
+    display: flex;
+    align-items: center;
+    position: relative;
+}
 
-        .evrak-topbar-search form {
-            display: flex;
-            align-items: center;
-            position: relative;
-        }
+.evrak-search-form {
+    position: relative;
 
-        .evrak-search-icon {
-            position: absolute;
-            left: 13px;
+    display: flex;
+    align-items: center;
 
-            width: 17px;
-            height: 17px;
+    width: 340px;
+    height: 42px;
+}
 
-            color: #7b8799;
+.evrak-search-input {
+    width: 100%;
+    height: 42px;
 
-            pointer-events: none;
-        }
+    padding: 0 78px 0 16px;
 
-        .evrak-search-input {
-            width: 220px;
-            height: 40px;
+    border: 1px solid #e1e6ef;
+    border-radius: 12px;
 
-            padding:
-                0 40px
-                0 39px;
+    outline: none;
 
-            border:
-                1px solid #e5e9f0;
+    background: #ffffff;
+    color: #18243a;
 
-            border-radius: 10px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
 
-            outline: none;
+    box-shadow:
+        0 2px 7px rgba(30, 50, 80, 0.04);
 
-            background: white;
-            color: #18243a;
+    transition:
+        border-color .2s ease,
+        box-shadow .2s ease,
+        background-color .2s ease,
+        transform .2s ease;
+}
 
-            font-family: inherit;
-            font-size: 13px;
+.evrak-search-input:hover {
+    border-color: #cfd7e4;
+}
 
-            transition:
-                border-color .2s ease,
-                box-shadow .2s ease;
-        }
+.evrak-search-input:focus {
+    border-color: #9eb9ef;
 
-        .evrak-search-input:focus {
-            border-color: #b7c4d8;
+    background: #ffffff;
 
-            box-shadow:
-                0 0 0 3px
-                rgba(53, 109, 243, .08);
-        }
+    box-shadow:
+        0 0 0 3px rgba(53, 109, 243, .09),
+        0 4px 12px rgba(30, 50, 80, 0.06);
+}
 
-        .evrak-search-input::placeholder {
-            color: #9aa6b7;
-        }
+.evrak-search-input::placeholder {
+    color: #9aa6b7;
+    font-weight: 500;
+}
 
-        .evrak-search-submit {
-            position: absolute;
-            right: 7px;
+.evrak-search-submit {
+    position: absolute;
 
-            width: 27px;
-            height: 27px;
+    right: 7px;
 
-            border: none;
-            border-radius: 7px;
+    width: 29px;
+    height: 29px;
 
-            background: transparent;
-            color: #6f7d91;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 
-            display: flex;
-            align-items: center;
-            justify-content: center;
+    border: none;
+    border-radius: 8px;
 
-            cursor: pointer;
-        }
+    background: #f2f5fa;
+    color: #68778d;
 
-        .evrak-search-submit:hover {
-            background: #f1f4f8;
-            color: #3372f4;
-        }
+    cursor: pointer;
 
-        .evrak-search-submit svg {
-            width: 15px;
-            height: 15px;
-        }
+    transition:
+        background-color .2s ease,
+        color .2s ease,
+        transform .2s ease;
+}
 
+.evrak-search-submit:hover {
+    background: #eaf1ff;
+    color: #3372f4;
+
+    transform: scale(1.04);
+}
+
+.evrak-search-submit svg {
+    width: 15px;
+    height: 15px;
+}
+
+.evrak-search-clear {
+    position: absolute;
+
+    right: 43px;
+
+    width: 25px;
+    height: 25px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-radius: 7px;
+
+    color: #97a3b4;
+    text-decoration: none;
+
+    transition:
+        background-color .2s ease,
+        color .2s ease;
+}
+
+.evrak-search-clear:hover {
+    background: #f2f4f8;
+    color: #d04e4e;
+}
+
+.evrak-search-clear svg {
+    width: 14px;
+    height: 14px;
+}
 
         /* =========================================================
            MESAJLAR
@@ -1126,7 +1942,21 @@ $reddedilenEvrakSayisi =
 
             flex-wrap: wrap;
         }
+.evrak-filter-bar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
 
+    margin-top: 16px;
+    padding-top: 14px;
+
+    border-top: 1px solid var(--border);
+}
+.evrak-status.archived {
+    background: #f1f3f5;
+    color: #687385;
+    border-color: #dce1e7;
+}
 
         .evrak-filter {
             display: inline-flex;
@@ -1194,31 +2024,43 @@ $reddedilenEvrakSayisi =
 
 
         /* =========================================================
-           TABLO ALANI
+           TABLO ALANI & EN ALTAKİ KAYDIRMA ÇUBUĞU (SCROLLBAR)
         ========================================================= */
 
         .evrak-table-wrapper {
             width: 100%;
-
             overflow-x: auto;
-
+            overflow-y: hidden;
             margin-top: 18px;
-
-            border:
-                1px solid var(--border);
-
+            border: 1px solid var(--border);
             border-radius: 12px;
+            padding-bottom: 4px;
+            scrollbar-width: thin;
+            scrollbar-color: #cfd9e8 #f1f4f9;
         }
 
+        .evrak-table-wrapper::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .evrak-table-wrapper::-webkit-scrollbar-track {
+            background: #f1f4f9;
+            border-radius: 10px;
+        }
+
+        .evrak-table-wrapper::-webkit-scrollbar-thumb {
+            background: #c5d2e3;
+            border-radius: 10px;
+        }
+
+        .evrak-table-wrapper::-webkit-scrollbar-thumb:hover {
+            background: #9aaec7;
+        }
 
         .evrak-table {
             width: 100%;
-
             border-collapse: collapse;
-
-            table-layout: fixed;
-
-            min-width: 980px;
+            min-width: 1050px;
         }
 
 
@@ -1246,6 +2088,7 @@ $reddedilenEvrakSayisi =
 
             border-bottom:
                 1px solid var(--border);
+            white-space: nowrap;
         }
 
 
@@ -1287,44 +2130,38 @@ $reddedilenEvrakSayisi =
 
         .evrak-table th:nth-child(1),
         .evrak-table td:nth-child(1) {
-            width: 55px;
+            width: 45px;
             text-align: center;
         }
 
-
         .evrak-table th:nth-child(2),
         .evrak-table td:nth-child(2) {
-            width: 190px;
+            width: 170px;
         }
-
 
         .evrak-table th:nth-child(3),
         .evrak-table td:nth-child(3) {
-            width: 220px;
+            width: 200px;
         }
-
 
         .evrak-table th:nth-child(4),
         .evrak-table td:nth-child(4) {
             width: 130px;
         }
 
-
         .evrak-table th:nth-child(5),
         .evrak-table td:nth-child(5) {
-            width: 105px;
+            width: 110px;
         }
-
 
         .evrak-table th:nth-child(6),
         .evrak-table td:nth-child(6) {
-            width: 125px;
+            width: 120px;
         }
-
 
         .evrak-table th:nth-child(7),
         .evrak-table td:nth-child(7) {
-            width: 190px;
+            min-width: 320px;
         }
 
 
@@ -1380,45 +2217,67 @@ $reddedilenEvrakSayisi =
 
 
         /* =========================================================
-           EVRAK ADI
+           EVRAK ADI & HER ZAMAN MAVİ / ÜZERİNE GELİNCE DAHA BELİRGİN
         ========================================================= */
 
         .evrak-name {
             display: flex;
-
             flex-direction: column;
-
             gap: 4px;
-
             min-width: 0;
         }
 
-
-        .evrak-name strong {
-            display: block;
-
-            overflow: hidden;
-
-            white-space: nowrap;
-
-            text-overflow: ellipsis;
-
-            font-size: 13px;
-            font-weight: 700;
+        .evrak-title-link {
+            text-decoration: underline !important;
+            text-underline-offset: 4px;
+            text-decoration-thickness: 1.5px;
+            color: #2563eb !important;
+            display: inline-block;
+            max-width: 100%;
+            transition: all .2s ease;
         }
 
+        .evrak-title-link strong {
+            display: block;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            font-size: 13px;
+            font-weight: 700;
+            color: #2563eb !important;
+            cursor: pointer;
+            transition: color .2s ease, transform .2s ease;
+        }
+
+        .evrak-title-link:hover {
+            text-decoration-thickness: 2.5px;
+            text-decoration-color: #1e40af !important;
+        }
+
+        .evrak-title-link:hover strong {
+            color: #1e40af !important;
+            transform: translateX(1px);
+        }
+
+        body.dark-mode .evrak-title-link,
+        body.dark-mode .evrak-title-link strong {
+            color: #60a5fa !important;
+        }
+
+        body.dark-mode .evrak-title-link:hover {
+            text-decoration-color: #93c5fd !important;
+        }
+
+        body.dark-mode .evrak-title-link:hover strong {
+            color: #93c5fd !important;
+        }
 
         .evrak-description {
             display: block;
-
             overflow: hidden;
-
             white-space: nowrap;
-
             text-overflow: ellipsis;
-
             color: var(--text-soft);
-
             font-size: 11px;
         }
 
@@ -1445,6 +2304,7 @@ $reddedilenEvrakSayisi =
 
             font-size: 11px;
             font-weight: 650;
+            white-space: nowrap;
         }
 
 
@@ -1457,6 +2317,7 @@ $reddedilenEvrakSayisi =
 
             font-size: 12px;
             font-weight: 600;
+            white-space: nowrap;
         }
 
 
@@ -1558,6 +2419,7 @@ $reddedilenEvrakSayisi =
             font-size: 10px;
 
             font-weight: 650;
+            white-space: nowrap;
         }
 
 
@@ -1565,377 +2427,778 @@ $reddedilenEvrakSayisi =
             width: 13px;
             height: 13px;
         }
-
-
 /* =========================================================
-   EVRAK İŞLEM BUTONLARI - YENİ TASARIM
+   SEÇİLEN DOSYALAR
 ========================================================= */
 
-.evrak-actions {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    flex-wrap: nowrap;
+.selected-files {
+    display: none;
+
+    margin-top: 14px;
+
+    flex-direction: column;
+
+    gap: 8px;
 }
 
+.selected-files.show {
+    display: flex;
+}
 
-/* =========================================================
-   ANA BUTON
-========================================================= */
+.selected-file-item {
+    display: flex;
 
-.evrak-action {
-    position: relative;
+    align-items: center;
+    justify-content: space-between;
 
-    width: 36px;
-    height: 36px;
+    gap: 12px;
+
+    padding: 10px 12px;
+
+    border: 1px solid #e1e6ef;
+
+    border-radius: 10px;
+
+    background: #f8fafc;
+}
+
+.selected-file-info {
+    display: flex;
+
+    align-items: center;
+
+    gap: 9px;
+
+    min-width: 0;
+}
+
+.selected-file-icon {
+    width: 32px;
+    height: 32px;
 
     flex-shrink: 0;
 
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
 
-    padding: 0;
+    border-radius: 8px;
+
+    background: #eef4ff;
+
+    color: #3975e8;
+}
+
+.selected-file-icon svg {
+    width: 15px;
+    height: 15px;
+}
+
+.selected-file-name {
+    min-width: 0;
+
+    overflow: hidden;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
+
+    font-size: 12px;
+
+    font-weight: 600;
+
+    color: var(--text);
+}
+
+.selected-file-actions {
+    display: flex;
+
+    align-items: center;
+
+    gap: 6px;
+
+    flex-shrink: 0;
+}
+
+.selected-file-button {
+    display: inline-flex;
+
+    align-items: center;
+    justify-content: center;
+
+    gap: 5px;
+
+    min-height: 30px;
+
+    padding: 0 9px;
 
     border: 1px solid transparent;
-    border-radius: 10px;
 
-    text-decoration: none;
+    border-radius: 8px;
+
+    font-size: 11px;
+
+    font-weight: 700;
 
     cursor: pointer;
 
+    text-decoration: none;
+
     transition:
-        transform .18s ease,
-        box-shadow .18s ease,
         background-color .18s ease,
         border-color .18s ease,
-        color .18s ease;
-}
-
-
-/* =========================================================
-   İKON
-========================================================= */
-
-.evrak-action svg {
-    width: 16px;
-    height: 16px;
-
-    stroke-width: 2.2;
-
-    transition:
+        color .18s ease,
         transform .18s ease;
 }
 
-
-/* =========================================================
-   HOVER
-========================================================= */
-
-.evrak-action:hover {
-    transform: translateY(-2px);
+.selected-file-button svg {
+    width: 13px;
+    height: 13px;
 }
 
-.evrak-action:hover svg {
-    transform: scale(1.08);
-}
-
-
-/* =========================================================
-   GÖRÜNTÜLE
-========================================================= */
-
-.evrak-action.view {
+.selected-file-view {
     background: #eef4ff;
-    color: #3975e8;
+
     border-color: #d8e5ff;
 
-    box-shadow:
-        0 2px 6px rgba(57, 117, 232, .08);
+    color: #3975e8;
 }
 
-.evrak-action.view:hover {
+.selected-file-view:hover {
     background: #e2ecff;
+
     border-color: #c4d7ff;
 
     color: #2865d9;
 
-    box-shadow:
-        0 5px 12px rgba(57, 117, 232, .16);
+    transform: translateY(-1px);
 }
 
-
-/* =========================================================
-   DÜZENLE
-========================================================= */
-
-.evrak-action.edit {
-    background: #f3efff;
-    color: #7558d9;
-    border-color: #e4dcff;
-
-    box-shadow:
-        0 2px 6px rgba(117, 88, 217, .08);
-}
-
-.evrak-action.edit:hover {
-    background: #e9e2ff;
-    border-color: #d5c9ff;
-
-    color: #6244c8;
-
-    box-shadow:
-        0 5px 12px rgba(117, 88, 217, .16);
-}
-
-
-/* =========================================================
-   ONAYLA
-========================================================= */
-
-.evrak-action.success {
-    background: #ecfaf2;
-    color: #24945a;
-    border-color: #d3efdf;
-
-    box-shadow:
-        0 2px 6px rgba(36, 148, 90, .08);
-}
-
-.evrak-action.success:hover {
-    background: #ddf6e8;
-    border-color: #bfe7d0;
-
-    color: #18834c;
-
-    box-shadow:
-        0 5px 12px rgba(36, 148, 90, .16);
-}
-
-
-/* =========================================================
-   REDDET
-========================================================= */
-
-.evrak-action.danger {
+.selected-file-remove {
     background: #fff0f1;
-    color: #d05252;
+
     border-color: #f3d5d7;
 
-    box-shadow:
-        0 2px 6px rgba(208, 82, 82, .08);
+    color: #d05252;
 }
 
-.evrak-action.danger:hover {
+.selected-file-remove:hover {
     background: #ffe4e6;
+
     border-color: #efc1c4;
 
     color: #bd3f3f;
 
-    box-shadow:
-        0 5px 12px rgba(208, 82, 82, .16);
+    transform: translateY(-1px);
 }
 
+body.dark-mode .selected-file-item {
+    background: #111b2d;
 
-/* =========================================================
-   TEKRAR İNCELE
-========================================================= */
-
-.evrak-action.back {
-    background: #f3f6fa;
-    color: #607089;
-    border-color: #dfe5ed;
-
-    box-shadow:
-        0 2px 6px rgba(70, 90, 115, .07);
+    border-color: #2a394f;
 }
 
-.evrak-action.back:hover {
-    background: #e8edf4;
-    border-color: #cfd8e4;
-
-    color: #465a73;
-
-    box-shadow:
-        0 5px 12px rgba(70, 90, 115, .14);
-}
-
-
-/* =========================================================
-   DOSYA YOK
-========================================================= */
-
-.evrak-no-file {
-    display: inline-flex;
-
-    align-items: center;
-    justify-content: center;
-
-    gap: 6px;
-
-    min-height: 36px;
-
-    padding: 0 11px;
-
-    border-radius: 10px;
-
-    background: #f5f7fa;
-
-    color: #7b8798;
-
-    border: 1px solid #e3e8ef;
-
-    font-size: 10px;
-    font-weight: 650;
-}
-
-.evrak-no-file svg {
-    width: 14px;
-    height: 14px;
-
-    stroke-width: 2;
-}
-
-
-/* =========================================================
-   BUTONLARIN FORM İÇİNDE BOZULMAMASI
-========================================================= */
-
-.evrak-actions form {
-    display: flex;
-    align-items: center;
-
-    margin: 0;
-    padding: 0;
-}
-
-
-/* =========================================================
-   KLAVYE ODAKLANMASI
-========================================================= */
-
-.evrak-action:focus-visible {
-    outline: none;
-
-    box-shadow:
-        0 0 0 3px rgba(53, 109, 243, .16);
-}
-
-
-/* =========================================================
-   DARK MODE
-========================================================= */
-
-body.dark-mode .evrak-action.view {
+body.dark-mode .selected-file-icon {
     background: #172b4d;
+
     color: #82aaff;
-    border-color: #29446e;
 }
 
-body.dark-mode .evrak-action.view:hover {
+body.dark-mode .selected-file-name {
+    color: #edf2f8;
+}
+
+body.dark-mode .selected-file-view {
+    background: #172b4d;
+
+    border-color: #29446e;
+
+    color: #82aaff;
+}
+
+body.dark-mode .selected-file-view:hover {
     background: #1c355c;
-    color: #9abbff;
+
     border-color: #365883;
 
-    box-shadow:
-        0 5px 14px rgba(80, 130, 220, .18);
+    color: #9abbff;
 }
 
-
-body.dark-mode .evrak-action.edit {
-    background: #292344;
-    color: #ad9aff;
-    border-color: #42366a;
-}
-
-body.dark-mode .evrak-action.edit:hover {
-    background: #332b55;
-    color: #c0b2ff;
-    border-color: #574b81;
-
-    box-shadow:
-        0 5px 14px rgba(130, 100, 220, .18);
-}
-
-
-body.dark-mode .evrak-action.success {
-    background: #173527;
-    color: #7bd8a5;
-    border-color: #28543d;
-}
-
-body.dark-mode .evrak-action.success:hover {
-    background: #1c412f;
-    color: #91e4b6;
-    border-color: #346c4e;
-
-    box-shadow:
-        0 5px 14px rgba(70, 180, 115, .16);
-}
-
-
-body.dark-mode .evrak-action.danger {
+body.dark-mode .selected-file-remove {
     background: #392125;
-    color: #f2a3a3;
+
     border-color: #5b3036;
+
+    color: #f2a3a3;
 }
 
-body.dark-mode .evrak-action.danger:hover {
+body.dark-mode .selected-file-remove:hover {
     background: #47262b;
-    color: #ffb4b4;
+
     border-color: #704047;
 
-    box-shadow:
-        0 5px 14px rgba(220, 90, 90, .16);
+    color: #ffb4b4;
 }
 
+        /* =========================================================
+           EVRAK İŞLEM BUTONLARI
+        ========================================================= */
 
-body.dark-mode .evrak-action.back {
-    background: #1b2638;
-    color: #aebbd0;
-    border-color: #304056;
-}
+        .evrak-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: nowrap;
+        }
 
-body.dark-mode .evrak-action.back:hover {
-    background: #233147;
-    color: #c3cfdf;
-    border-color: #3d506a;
+        .evrak-action {
+            position: relative;
 
-    box-shadow:
-        0 5px 14px rgba(90, 120, 155, .14);
-}
+            width: 34px;
+            height: 34px;
 
+            flex-shrink: 0;
 
-body.dark-mode .evrak-no-file {
-    background: #1a2434;
-    color: #8997aa;
-    border-color: #2d3a4d;
-}
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
 
+            padding: 0;
 
-/* =========================================================
-   MOBİL
-========================================================= */
+            border: 1px solid transparent;
+            border-radius: 9px;
 
-@media (max-width: 700px) {
+            text-decoration: none;
 
-    .evrak-actions {
-        gap: 5px;
-    }
+            cursor: pointer;
 
-    .evrak-action {
-        width: 34px;
-        height: 34px;
-        border-radius: 9px;
-    }
+            transition:
+                transform .18s ease,
+                box-shadow .18s ease,
+                background-color .18s ease,
+                border-color .18s ease,
+                color .18s ease;
+        }
 
-    .evrak-action svg {
-        width: 15px;
-        height: 15px;
-    }
+        .evrak-action svg {
+            width: 15px;
+            height: 15px;
 
-}
+            stroke-width: 2.2;
 
+            transition:
+                transform .18s ease;
+        }
+
+        .evrak-action:hover {
+            transform: translateY(-2px);
+        }
+
+        .evrak-action:hover svg {
+            transform: scale(1.08);
+        }
+
+        .evrak-action.view {
+            background: #eef4ff;
+            color: #3975e8;
+            border-color: #d8e5ff;
+
+            box-shadow:
+                0 2px 6px rgba(57, 117, 232, .08);
+        }
+
+        .evrak-action.view:hover {
+            background: #e2ecff;
+            border-color: #c4d7ff;
+
+            color: #2865d9;
+
+            box-shadow:
+                0 5px 12px rgba(57, 117, 232, .16);
+        }
+
+        .evrak-action.edit {
+            background: #f3efff;
+            color: #7558d9;
+            border-color: #e4dcff;
+
+            box-shadow:
+                0 2px 6px rgba(117, 88, 217, .08);
+        }
+
+        .evrak-action.edit:hover {
+            background: #e9e2ff;
+            border-color: #d5c9ff;
+
+            color: #6244c8;
+
+            box-shadow:
+                0 5px 12px rgba(117, 88, 217, .16);
+        }
+
+        .evrak-action.success {
+            background: #ecfaf2;
+            color: #24945a;
+            border-color: #d3efdf;
+
+            box-shadow:
+                0 2px 6px rgba(36, 148, 90, .08);
+        }
+
+        .evrak-action.success:hover {
+            background: #ddf6e8;
+            border-color: #bfe7d0;
+
+            color: #18834c;
+
+            box-shadow:
+                0 5px 12px rgba(36, 148, 90, .16);
+        }
+
+        .evrak-action.danger {
+            background: #fff0f1;
+            color: #d05252;
+            border-color: #f3d5d7;
+
+            box-shadow:
+                0 2px 6px rgba(208, 82, 82, .08);
+        }
+
+        .evrak-action.danger:hover {
+            background: #ffe4e6;
+            border-color: #efc1c4;
+
+            color: #bd3f3f;
+
+            box-shadow:
+                0 5px 12px rgba(208, 82, 82, .16);
+        }
+
+        .evrak-action.back {
+            background: #f3f6fa;
+            color: #607089;
+            border-color: #dfe5ed;
+
+            box-shadow:
+                0 2px 6px rgba(70, 90, 115, .07);
+        }
+
+        .evrak-action.back:hover {
+            background: #e8edf4;
+            border-color: #cfd8e4;
+
+            color: #465a73;
+
+            box-shadow:
+                0 5px 12px rgba(70, 90, 115, .14);
+        }
+
+        .evrak-no-file {
+            display: inline-flex;
+
+            align-items: center;
+            justify-content: center;
+
+            gap: 6px;
+
+            min-height: 34px;
+
+            padding: 0 10px;
+
+            border-radius: 9px;
+
+            background: #f5f7fa;
+
+            color: #7b8798;
+
+            border: 1px solid #e3e8ef;
+
+            font-size: 10px;
+            font-weight: 650;
+            flex-shrink: 0;
+        }
+
+        .evrak-no-file svg {
+            width: 14px;
+            height: 14px;
+
+            stroke-width: 2;
+        }
+
+        .evrak-actions form {
+            display: flex;
+            align-items: center;
+
+            margin: 0;
+            padding: 0;
+        }
+
+        .evrak-action:focus-visible {
+            outline: none;
+
+            box-shadow:
+                0 0 0 3px rgba(53, 109, 243, .16);
+        }
+
+        .evrak-inline-form {
+            display: inline-flex !important;
+            align-items: center;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* =========================================================
+           ALT ALTA DOSYA LİSTESİ (İSİMLİ)
+        ========================================================= */
+
+        .evrak-files-vertical {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            align-items: flex-start;
+            flex-shrink: 0;
+        }
+
+        .evrak-file-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: #f4f7fb;
+            padding: 3px 8px;
+            border-radius: 8px;
+            border: 1px solid #e3e8ef;
+            flex-shrink: 0;
+        }
+
+        .evrak-file-name-label {
+            display: inline-block;
+            max-width: 130px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 11px;
+            font-weight: 600;
+            color: #4a5568;
+            text-decoration: none;
+            line-height: 1.2;
+        }
+
+        .evrak-file-name-label:hover {
+            color: #3975e8;
+        }
+
+        /* =========================================================
+           DARK MODE
+        ========================================================= */
+
+        body.dark-mode .evrak-action.view {
+            background: #172b4d;
+            color: #82aaff;
+            border-color: #29446e;
+        }
+
+        body.dark-mode .evrak-action.view:hover {
+            background: #1c355c;
+            color: #9abbff;
+            border-color: #365883;
+
+            box-shadow:
+                0 5px 14px rgba(80, 130, 220, .18);
+        }
+
+        body.dark-mode .evrak-action.edit {
+            background: #292344;
+            color: #ad9aff;
+            border-color: #42366a;
+        }
+
+        body.dark-mode .evrak-action.edit:hover {
+            background: #332b55;
+            color: #c0b2ff;
+            border-color: #574b81;
+
+            box-shadow:
+                0 5px 14px rgba(130, 100, 220, .18);
+        }
+
+        body.dark-mode .evrak-action.success {
+            background: #173527;
+            color: #7bd8a5;
+            border-color: #28543d;
+        }
+
+        body.dark-mode .evrak-action.success:hover {
+            background: #1c412f;
+            color: #91e4b6;
+            border-color: #346c4e;
+
+            box-shadow:
+                0 5px 14px rgba(70, 180, 115, .16);
+        }
+
+        body.dark-mode .evrak-action.danger {
+            background: #392125;
+            color: #f2a3a3;
+            border-color: #5b3036;
+        }
+
+        body.dark-mode .evrak-action.danger:hover {
+            background: #47262b;
+            color: #ffb4b4;
+            border-color: #704047;
+
+            box-shadow:
+                0 5px 14px rgba(220, 90, 90, .16);
+        }
+
+        body.dark-mode .evrak-action.back {
+            background: #1b2638;
+            color: #aebbd0;
+            border-color: #304056;
+        }
+
+        body.dark-mode .evrak-action.back:hover {
+            background: #233147;
+            color: #c3cfdf;
+            border-color: #3d506a;
+
+            box-shadow:
+                0 5px 14px rgba(90, 120, 155, .14);
+        }
+
+        body.dark-mode .evrak-no-file {
+            background: #1a2434;
+            color: #8997aa;
+            border-color: #2d3a4d;
+        }
+
+        body.dark-mode .evrak-table-wrapper {
+            scrollbar-color: #33445e #111a28;
+        }
+
+        body.dark-mode .evrak-table-wrapper::-webkit-scrollbar-track {
+            background: #111a28;
+        }
+
+        body.dark-mode .evrak-table-wrapper::-webkit-scrollbar-thumb {
+            background: #2b3b52;
+        }
+
+        body.dark-mode .evrak-table-wrapper::-webkit-scrollbar-thumb:hover {
+            background: #3f5575;
+        }
+
+        body.dark-mode .evrak-file-row {
+            background: #152033;
+            border-color: #24354d;
+        }
+
+        body.dark-mode .evrak-file-name-label {
+            color: #cbd5e1;
+        }
+
+        body.dark-mode .evrak-file-name-label:hover {
+            color: #82aaff;
+        }
+
+        /* =========================================================
+           EVRAKLAR TAM DARK MODE
+        ========================================================= */
+
+        body.dark-mode .evrak-list-card {
+            background: var(--card);
+        }
+
+        body.dark-mode .evrak-list-header {
+            border-color: var(--border);
+        }
+
+        body.dark-mode .evrak-table-wrapper {
+            background: #0f1826;
+            border-color: #2a394f;
+        }
+
+        body.dark-mode .evrak-table {
+            background: #0f1826;
+        }
+
+        body.dark-mode .evrak-table thead {
+            background: #151f2f;
+        }
+
+        body.dark-mode .evrak-table th {
+            background: #151f2f;
+            color: #8f9eb2;
+            border-color: #2a394f;
+        }
+
+        body.dark-mode .evrak-table td {
+            color: #e5ebf3;
+            border-color: #243247;
+        }
+
+        body.dark-mode .evrak-table tbody tr:hover {
+            background: #162235;
+        }
+
+        body.dark-mode .evrak-person-icon {
+            background: #172b4d;
+            color: #82aaff;
+        }
+
+        body.dark-mode .evrak-person-name {
+            color: #edf2f8;
+        }
+
+        body.dark-mode .evrak-description {
+            color: #8998ad;
+        }
+
+        body.dark-mode .evrak-number {
+            background: #182436;
+            color: #b8c5d6;
+            border: 1px solid #2b3a50;
+        }
+
+        body.dark-mode .evrak-date {
+            color: #a1aec0;
+        }
+
+        /* FİLTRELER */
+
+        body.dark-mode .evrak-filter {
+            background: #141f30;
+            border-color: #2a394f;
+            color: #9eacbe;
+        }
+
+        body.dark-mode .evrak-filter:hover {
+            background: #1a293d;
+            border-color: #3a4c64;
+            color: #edf2f8;
+        }
+
+        body.dark-mode .evrak-filter.active {
+            background: #172b4d;
+            border-color: #34517c;
+            color: #82aaff;
+        }
+
+        /* ARŞİVLENMİŞ DURUM */
+
+        body.dark-mode .evrak-status.archived {
+            background: #222c3a;
+            color: #a6b1c0;
+            border-color: #374457;
+        }
+
+        /* DURUMLAR */
+
+        body.dark-mode .evrak-status.pending {
+            background: #3a2e18;
+            color: #f2c66d;
+            border-color: #5b4724;
+        }
+
+        body.dark-mode .evrak-status.approved {
+            background: #173527;
+            color: #7bd8a5;
+            border-color: #28543d;
+        }
+
+        body.dark-mode .evrak-status.rejected {
+            background: #392125;
+            color: #f2a3a3;
+            border-color: #5b3036;
+        }
+
+        body.dark-mode .red-reason {
+            color: #f2a3a3;
+        }
+
+        /* DOSYA SATIRI */
+
+        body.dark-mode .evrak-file-row {
+            background: #152033;
+            border-color: #2a3b53;
+        }
+
+        body.dark-mode .evrak-file-name-label {
+            color: #cbd5e1;
+        }
+
+        body.dark-mode .evrak-file-name-label:hover {
+            color: #82aaff;
+        }
+
+        /* DOSYA YOK */
+
+        body.dark-mode .evrak-no-file {
+            background: #1a2434;
+            color: #8997aa;
+            border-color: #2d3a4d;
+        }
+
+        /* BOŞ LİSTE */
+
+        body.dark-mode .evrak-empty {
+            color: #8997aa;
+        }
+
+        body.dark-mode .evrak-empty-icon {
+            background: #172233;
+            color: #718198;
+        }
+
+        /* MESAJLAR */
+
+        body.dark-mode .evrak-message {
+            background: #173527;
+            border-color: #28543d;
+            color: #7bd8a5;
+        }
+
+        body.dark-mode .evrak-error {
+            background: #392125;
+            border-color: #5b3036;
+            color: #f2a3a3;
+        }
+
+        /* KULLANICI MENÜSÜ */
+
+        body.dark-mode .user-dropdown {
+            background: #111b2d;
+            border-color: #2a394f;
+            box-shadow:
+                0 10px 28px rgba(0, 0, 0, .35);
+        }
+
+        body.dark-mode .user-dropdown-item {
+            color: #f2a3a3;
+        }
+
+        body.dark-mode .user-dropdown-item:hover {
+            background: #392125;
+            color: #ffb4b4;
+        }
+
+        /* TABLO KAYDIRMA ÇUBUĞU */
+
+        body.dark-mode .evrak-table-wrapper {
+            scrollbar-color: #33445e #111a28;
+        }
+
+        body.dark-mode .evrak-table-wrapper::-webkit-scrollbar-track {
+            background: #111a28;
+        }
+
+        body.dark-mode .evrak-table-wrapper::-webkit-scrollbar-thumb {
+            background: #33445e;
+        }
+
+        body.dark-mode .evrak-table-wrapper::-webkit-scrollbar-thumb:hover {
+            background: #466081;
+        }
 
         /* =========================================================
            TABLO BOŞ DURUM
@@ -2082,116 +3345,49 @@ body.dark-mode .evrak-no-file {
            DARK MODE
         ========================================================= */
 
-        body.dark-mode .evrak-search-input {
-            background: #111b2d;
-            border-color: #2a394f;
-            color: #edf2f8;
-        }
+      body.dark-mode .evrak-search-input {
+    background: #111b2d;
+    border-color: #2a394f;
+    color: #edf2f8;
 
+    box-shadow:
+        0 2px 7px rgba(0, 0, 0, .12);
+}
 
-        body.dark-mode .evrak-search-input::placeholder {
-            color: #6f7e95;
-        }
+body.dark-mode .evrak-search-input:hover {
+    border-color: #3b4c65;
+}
 
+body.dark-mode .evrak-search-input:focus {
+    border-color: #527ac4;
 
-        body.dark-mode .evrak-search-submit {
-            color: #91a0b7;
-        }
+    box-shadow:
+        0 0 0 3px rgba(82, 122, 196, .12),
+        0 4px 12px rgba(0, 0, 0, .16);
+}
 
+body.dark-mode .evrak-search-input::placeholder {
+    color: #6f7e95;
+}
 
-        body.dark-mode .evrak-search-submit:hover {
-            background: #1d2d47;
-            color: #7fa8ff;
-        }
+body.dark-mode .evrak-search-submit {
+    background: #1a2638;
+    color: #91a0b7;
+}
 
+body.dark-mode .evrak-search-submit:hover {
+    background: #223450;
+    color: #7fa8ff;
+}
 
-        body.dark-mode .evrak-table thead {
-            background: #101a2b;
-        }
+body.dark-mode .evrak-search-clear {
+    color: #7d8da4;
+}
 
-
-        body.dark-mode .evrak-table th,
-        body.dark-mode .evrak-table td {
-            border-color: #26344a;
-        }
-
-
-        body.dark-mode .evrak-table tbody tr:hover {
-            background: #172236;
-        }
-
-
-        body.dark-mode .evrak-person-icon {
-            background: #172c50;
-            color: #79a2ff;
-        }
-
-
-        body.dark-mode .evrak-number {
-            background: #172236;
-            color: #aebbd0;
-        }
-
-
-        body.dark-mode .evrak-no-file {
-            background: #172236;
-            color: #7c8ba1;
-        }
-
-
-        body.dark-mode .evrak-action.view,
-        body.dark-mode .evrak-action.edit,
-        body.dark-mode .evrak-action.back {
-            background: #172236;
-            border-color: #2a394f;
-            color: #c8d3e3;
-        }
-
-
-        body.dark-mode .evrak-action.view:hover,
-        body.dark-mode .evrak-action.edit:hover {
-            background: #1d2d47;
-            border-color: #355277;
-            color: #7fa8ff;
-        }
-
-
-        body.dark-mode .evrak-action.success {
-            background: #143022;
-            border-color: #23523b;
-            color: #7bd5a2;
-        }
-
-
-        body.dark-mode .evrak-action.danger {
-            background: #321d20;
-            border-color: #563034;
-            color: #f0a2a2;
-        }
-
-
-        body.dark-mode .evrak-empty-icon {
-            background: #172236;
-            color: #64748a;
-        }
-
-
-        body.dark-mode .user-dropdown {
-            background: #121b2d;
-            border-color: #26344a;
-        }
-
-
-        body.dark-mode .user-dropdown-item {
-            color: #f0a2a2;
-        }
-
-
-        body.dark-mode .user-dropdown-item:hover {
-            background: #321d20;
-            color: #ffb0b0;
-        }
-
+body.dark-mode .evrak-search-clear:hover {
+    background: #202c3f;
+    color: #ff9d9d;
+}
 
         /* =========================================================
            RESPONSIVE
@@ -2233,78 +3429,81 @@ body.dark-mode .evrak-no-file {
             }
 
         }
+
+
         /* =========================================================
-   EVRAK FORM BUTONLARI
-========================================================= */
+           EVRAK FORM BUTONLARI
+        ========================================================= */
 
-.evrak-page .view-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+        .evrak-page .view-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
 
-    gap: 8px;
+            gap: 8px;
 
-    min-height: 40px;
+            min-height: 40px;
 
-    padding: 0 16px;
+            padding: 0 16px;
 
-    border: 1px solid #d7e1f0;
-    border-radius: 10px;
+            border: 1px solid #d7e1f0;
+            border-radius: 10px;
 
-    background: #f5f8fd;
-    color: #45607f;
+            background: #f5f8fd;
+            color: #45607f;
 
-    font-size: 12px;
-    font-weight: 700;
+            font-size: 12px;
+            font-weight: 700;
 
-    text-decoration: none;
+            text-decoration: none;
 
-    cursor: pointer;
+            cursor: pointer;
 
-    transition:
-        transform .18s ease,
-        background-color .18s ease,
-        border-color .18s ease,
-        color .18s ease,
-        box-shadow .18s ease;
-}
-
-.evrak-page .view-button svg {
-    width: 16px;
-    height: 16px;
-
-    stroke-width: 2.2;
-}
-
-.evrak-page .view-button:hover {
-    transform: translateY(-2px);
-
-    background: #eaf1ff;
-    border-color: #c8d8f7;
-
-    color: #3372f4;
-
-    box-shadow:
-        0 5px 14px rgba(53, 109, 243, .12);
-}
+            transition:
+                transform .18s ease,
+                background-color .18s ease,
+                border-color .18s ease,
+                color .18s ease,
+                box-shadow .18s ease;
+        }
 
 
-/* DARK MODE */
+        .evrak-page .view-button svg {
+            width: 16px;
+            height: 16px;
 
-body.dark-mode .evrak-page .view-button {
-    background: #172236;
-    border-color: #2d3d54;
-    color: #c2cede;
-}
+            stroke-width: 2.2;
+        }
 
-body.dark-mode .evrak-page .view-button:hover {
-    background: #1d2d47;
-    border-color: #3b5577;
-    color: #82aaff;
 
-    box-shadow:
-        0 5px 14px rgba(80, 130, 220, .15);
-}
+        .evrak-page .view-button:hover {
+            transform: translateY(-2px);
+
+            background: #eaf1ff;
+            border-color: #c8d8f7;
+
+            color: #3372f4;
+
+            box-shadow:
+                0 5px 14px rgba(53, 109, 243, .12);
+        }
+
+
+        body.dark-mode .evrak-page .view-button {
+            background: #172236;
+            border-color: #2d3d54;
+            color: #c2cede;
+        }
+
+
+        body.dark-mode .evrak-page .view-button:hover {
+            background: #1d2d47;
+            border-color: #3b5577;
+            color: #82aaff;
+
+            box-shadow:
+                0 5px 14px rgba(80, 130, 220, .15);
+        }
 
     </style>
 
@@ -2344,7 +3543,6 @@ body.dark-mode .evrak-page .view-button:hover {
 
 
         <nav class="sidebar-menu">
-
 
             <a
                 href="../dashboard.php"
@@ -2429,7 +3627,23 @@ body.dark-mode .evrak-page .view-button:hover {
                 </span>
 
             </a>
+<!-- PROFİL -->
 
+<a
+    href="../profil.php"
+    class="sidebar-link"
+>
+
+    <i
+        data-lucide="user-round"
+        class="menu-icon"
+    ></i>
+
+    <span>
+        Profilim
+    </span>
+
+</a>
         </nav>
 
 
@@ -2489,54 +3703,61 @@ body.dark-mode .evrak-page .view-button:hover {
 
             <div class="topbar-right">
 
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
+
 
                 <!-- ARAMA -->
 
                 <div class="evrak-topbar-search">
 
-                    <form
-                        method="GET"
-                        action="evraklar.php"
-                    >
+    <form
+        method="GET"
+        action="evraklar.php"
+        class="evrak-search-form"
+    >
 
-                        <input
-                            type="hidden"
-                            name="gorunum"
-                            value="<?= temizle($gorunum) ?>"
-                        >
-
-
-                        <i
-                            data-lucide="search"
-                            class="evrak-search-icon"
-                        ></i>
+        <input
+            type="hidden"
+            name="gorunum"
+            value="<?= temizle($gorunum) ?>"
+        >
 
 
-                        <input
-                            type="text"
-                            name="arama"
-                            class="evrak-search-input"
-                            placeholder="Evrak, personel veya evrak no ara..."
-                            value="<?= temizle($arama) ?>"
-                            autocomplete="off"
-                        >
+        <input
+            type="text"
+            name="arama"
+            id="evrakArama"
+            class="evrak-search-input"
+            placeholder="Evrak, personel veya evrak no ara..."
+            value="<?= temizle($arama) ?>"
+            autocomplete="off"
+        >
 
+        <?php if ($arama !== ""): ?>
 
-                        <button
-                            type="submit"
-                            class="evrak-search-submit"
-                            title="Ara"
-                        >
+            <a
+                href="evraklar.php?gorunum=<?= temizle($gorunum) ?>"
+                class="evrak-search-clear"
+                title="Aramayı temizle"
+                aria-label="Aramayı temizle"
+            >
+                <i data-lucide="x"></i>
+            </a>
 
-                            <i
-                                data-lucide="search"
-                            ></i>
+        <?php endif; ?>
 
-                        </button>
+        <button
+            type="submit"
+            class="evrak-search-submit"
+            title="Ara"
+            aria-label="Ara"
+        >
+            <i data-lucide="search"></i>
+        </button>
 
-                    </form>
+    </form>
 
-                </div>
+</div>
 
 
                 <!-- TEMA -->
@@ -2585,16 +3806,18 @@ body.dark-mode .evrak-page .view-button:hover {
 
                         <div class="user-avatar">
 
-                            <?=
-                                strtoupper(
-                                    substr(
-                                        $_SESSION[
-                                            "kullanici_adi"
-                                        ],
-                                        0,
-                                        1
-                                    )
-                                )
+                            <?php
+                            $ilk_harf = mb_substr(
+                                $giris_yapan_kullanici["ad"]
+                                ?: $giris_yapan_kullanici["kullanici_adi"],
+                                0,
+                                1,
+                                "UTF-8"
+                            );
+
+                            echo htmlspecialchars(
+                                mb_strtoupper($ilk_harf, "UTF-8")
+                            );
                             ?>
 
                         </div>
@@ -2603,22 +3826,20 @@ body.dark-mode .evrak-page .view-button:hover {
                         <div class="user-text">
 
                             <strong>
-
-                                <?= temizle(
-                                    $_SESSION[
-                                        "kullanici_adi"
-                                    ]
+                                <?= htmlspecialchars(
+                                    $kullanici_ad_soyad,
+                                    ENT_QUOTES,
+                                    "UTF-8"
                                 ) ?>
-
                             </strong>
 
 
                             <span>
-
-                                <?= temizle(
-                                    $_SESSION["rol"]
+                                <?= htmlspecialchars(
+                                    $rol_etiketi,
+                                    ENT_QUOTES,
+                                    "UTF-8"
                                 ) ?>
-
                             </span>
 
                         </div>
@@ -2806,13 +4027,15 @@ body.dark-mode .evrak-page .view-button:hover {
             <!-- =================================================
                  EVRAK EKLE / DÜZENLE
             ================================================== -->
-<div
-    class="large-card"
-    id="evrakFormCard"
-    style="<?= $duzenlenecekEvrak ? "" : "display:none;" ?>"
->
 
-    <div class="card-title-area">
+            <div
+                class="large-card"
+                id="evrakFormCard"
+                style="<?= $duzenlenecekEvrak ? "" : "display:none;" ?>"
+            >
+
+                <div class="card-title-area">
+
                     <div>
 
                         <h2>
@@ -3086,74 +4309,45 @@ body.dark-mode .evrak-page .view-button:hover {
                             </label>
 
 
-                            <label
-                                for="evrak_dosyasi"
-                                class="evrak-file-area"
-                            >
+                           <label
+    for="evrak_dosyasi"
+    class="evrak-file-area"
+>
+    <div class="evrak-file-icon">
+        <i data-lucide="upload-cloud"></i>
+    </div>
 
-                                <div class="evrak-file-icon">
+    <div class="evrak-file-text">
 
-                                    <i
-                                        data-lucide="upload-cloud"
-                                    ></i>
+        <strong>
+            Dosya yüklemek için tıklayın
+        </strong>
 
-                                </div>
+        <span>
+            Birden fazla dosya seçebilirsiniz
+        </span>
 
+    </div>
 
-                                <div class="evrak-file-text">
-
-                                    <strong>
-                                        Dosya yüklemek için tıklayın
-                                    </strong>
-
-                                    <span id="fileName">
-
-                                        <?php if (
-                                            $duzenlenecekEvrak &&
-                                            !empty(
-                                                $duzenlenecekEvrak[
-                                                    "dosya_yolu"
-                                                ]
-                                            )
-                                        ): ?>
-
-                                            Mevcut dosya korunuyor
-
-                                        <?php else: ?>
-
-                                            Dosya yüklemek isteğe bağlıdır
-
-                                        <?php endif; ?>
-
-                                    </span>
-
-                                </div>
+    <div class="evrak-file-button">
+        Dosya Seç
+    </div>
+</label>
 
 
-                                <div class="evrak-file-button">
-                                    Dosya Seç
-                                </div>
-
-                            </label>
-
-
-                            <input
-                                type="file"
-                                name="evrak_dosyasi"
-                                id="evrak_dosyasi"
-                                accept="
-                                    .pdf,
-                                    .doc,
-                                    .docx,
-                                    .xls,
-                                    .xlsx,
-                                    .jpg,
-                                    .jpeg,
-                                    .png
-                                "
-                                style="display:none;"
-                            >
-
+<input
+    type="file"
+    name="evrak_dosyasi[]"
+    id="evrak_dosyasi"
+    multiple
+    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+    style="display:none;"
+    
+>
+<div
+    id="seciliDosyalar"
+    class="selected-files"
+></div>
 
                             <div
                                 style="
@@ -3222,7 +4416,7 @@ body.dark-mode .evrak-page .view-button:hover {
                                 ? temizle(
                                     $duzenlenecekEvrak[
                                         "aciklama"
-                                    ]
+                                    ] ?? ""
                                 )
                                 : ""
                             ?></textarea>
@@ -3262,13 +4456,16 @@ body.dark-mode .evrak-page .view-button:hover {
                         </button>
 
 
-<a
-    href="evraklar.php"
-    class="view-button"
->
-    <i data-lucide="arrow-left"></i>
-    Geri
-</a>
+                        <a
+                            href="evraklar.php"
+                            class="view-button"
+                        >
+
+                            <i data-lucide="arrow-left"></i>
+
+                            Geri
+
+                        </a>
 
                     </div>
 
@@ -3277,114 +4474,183 @@ body.dark-mode .evrak-page .view-button:hover {
             </div>
 
 
-            <!-- =================================================
-                 EVRAK LİSTESİ
-            ================================================== -->
+          <!-- =================================================
+     EVRAK LİSTESİ
+================================================= -->
 
-            <div
-                class="large-card evrak-list-card"
-                 id="evrakListCard"
-            >
+<div
+    class="large-card evrak-list-card"
+    id="evrakListCard"
+>
 
+    <!-- =================================================
+         LİSTE BAŞLIĞI
+    ================================================== -->
 
-                <div
-                    class="evrak-list-header"
-                >
+    <div class="evrak-list-header">
 
-<?php if (!$duzenlenecekEvrak): ?>
+        <div class="evrak-list-title">
 
-    <button
-        type="button"
-        class="view-button"
-        onclick="evrakFormunuAc()"
-    >
-        <i data-lucide="plus"></i>
-        Evrak Ekle
-    </button>
+            <h2>
+                Evrak Listesi
+            </h2>
 
-<?php endif; ?>
+            <p>
+                Sistemde kayıtlı evrakları görüntüleyin ve yönetin.
+            </p>
 
+            <?php if ($arama !== ""): ?>
 
-                    <!-- FİLTRELER -->
+                <div class="evrak-search-result-info">
 
-                    <div
-                        class="evrak-filters"
-                    >
+                    <i data-lucide="search"></i>
 
-                        <a
-                            href="evraklar.php"
-                            class="evrak-filter
-                                <?= $gorunum === "tum"
-                                    ? "active"
-                                    : ""
-                                ?>"
-                        >
+                    <span>
 
-                            <i
-                                data-lucide="files"
-                            ></i>
+                        "<strong><?= temizle($arama) ?></strong>"
 
-                            Tümü
+                        için
 
-                        </a>
+                        <strong><?= count($evraklar) ?></strong>
 
+                        sonuç bulundu
 
-                        <a
-                            href="evraklar.php?gorunum=beklemede"
-                            class="evrak-filter
-                                <?= $gorunum === "beklemede"
-                                    ? "active"
-                                    : ""
-                                ?>"
-                        >
-
-                            <i
-                                data-lucide="clock-3"
-                            ></i>
-
-                            Beklemede
-
-                        </a>
-
-
-                        <a
-                            href="evraklar.php?gorunum=onaylandi"
-                            class="evrak-filter
-                                <?= $gorunum === "onaylandi"
-                                    ? "active"
-                                    : ""
-                                ?>"
-                        >
-
-                            <i
-                                data-lucide="circle-check"
-                            ></i>
-
-                            Onaylandı
-
-                        </a>
-
-
-                        <a
-                            href="evraklar.php?gorunum=reddedildi"
-                            class="evrak-filter
-                                <?= $gorunum === "reddedildi"
-                                    ? "active"
-                                    : ""
-                                ?>"
-                        >
-
-                            <i
-                                data-lucide="circle-x"
-                            ></i>
-
-                            Reddedildi
-
-                        </a>
-
-                    </div>
+                    </span>
 
                 </div>
+
+            <?php endif; ?>
+
+        </div>
+
+
+        <!-- EVRAK EKLE -->
+
+        <?php if (!$duzenlenecekEvrak): ?>
+
+            <button
+                type="button"
+                class="view-button"
+                onclick="evrakFormunuAc()"
+            >
+
+                <i data-lucide="plus"></i>
+
+                Evrak Ekle
+
+            </button>
+
+        <?php endif; ?>
+
+    </div>
+
+
+    <!-- =================================================
+         FİLTRELER
+    ================================================== -->
+
+    <div class="evrak-filter-bar">
+
+        <div class="evrak-filters">
+
+
+            <!-- TÜMÜ -->
+
+            <a
+                href="evraklar.php"
+                class="evrak-filter
+                    <?= $gorunum === "tum"
+                        ? "active"
+                        : ""
+                    ?>"
+            >
+
+                <i data-lucide="files"></i>
+
+                Tümü
+
+            </a>
+
+
+            <!-- BEKLEMEDE -->
+
+            <a
+                href="evraklar.php?gorunum=beklemede"
+                class="evrak-filter
+                    <?= $gorunum === "beklemede"
+                        ? "active"
+                        : ""
+                    ?>"
+            >
+
+                <i data-lucide="clock-3"></i>
+
+                Beklemede
+
+            </a>
+
+
+            <!-- ONAYLANDI -->
+
+            <a
+                href="evraklar.php?gorunum=onaylandi"
+                class="evrak-filter
+                    <?= $gorunum === "onaylandi"
+                        ? "active"
+                        : ""
+                    ?>"
+            >
+
+                <i data-lucide="circle-check"></i>
+
+                Onaylandı
+
+            </a>
+
+
+            <!-- REDDEDİLDİ -->
+
+            <a
+                href="evraklar.php?gorunum=reddedildi"
+                class="evrak-filter
+                    <?= $gorunum === "reddedildi"
+                        ? "active"
+                        : ""
+                    ?>"
+            >
+
+                <i data-lucide="circle-x"></i>
+
+                Reddedildi
+
+            </a>
+
+
+            <!-- ARŞİVLENDİ -->
+
+            <a
+                href="evraklar.php?gorunum=arsivlendi"
+                class="evrak-filter
+                    <?= $gorunum === "arsivlendi"
+                        ? "active"
+                        : ""
+                    ?>"
+            >
+
+                <i data-lucide="archive"></i>
+
+                Arşivlendi
+
+            </a>
+
+        </div>
+
+    </div>
+
+
+    <!-- =================================================
+         TABLO BAŞLANGICI
+    ================================================== -->
 
 
                 <!-- TABLO -->
@@ -3500,7 +4766,7 @@ body.dark-mode .evrak-page .view-button:hover {
                                         </td>
 
 
-                                        <!-- EVRAK -->
+                                        <!-- EVRAK (SÜREKLİ MAVİ VE HOVER'DA DAHA BELİRGİN ALTI ÇİZİLİ LİNK) -->
 
                                         <td>
 
@@ -3508,15 +4774,15 @@ body.dark-mode .evrak-page .view-button:hover {
                                                 class="evrak-name"
                                             >
 
-                                                <strong>
-
-                                                    <?= temizle(
-                                                        $evrak[
-                                                            "evrak_adi"
-                                                        ]
-                                                    ) ?>
-
-                                                </strong>
+                                                <a 
+                                                    href="evrak-detay.php?id=<?= (int)$evrak['id'] ?>" 
+                                                    class="evrak-title-link"
+                                                    title="Evrak Detayını ve Çıktı Formunu Görüntüle"
+                                                >
+                                                    <strong>
+                                                        <?= temizle($evrak["evrak_adi"]) ?>
+                                                    </strong>
+                                                </a>
 
 
                                                 <?php if (
@@ -3645,12 +4911,31 @@ body.dark-mode .evrak-page .view-button:hover {
                                                     Onaylandı
 
                                                 </span>
+                                                <?php elseif ( 
+    $durum === "arsivlendi" 
+): ?>
+
+    <span 
+        class="
+            evrak-status
+            archived
+        "
+    >
+
+        <i 
+            data-lucide="archive"
+        ></i>
+
+        Arşivlendi
+
+    </span>
 
 
                                             <?php elseif (
                                                 $durum ===
                                                 "reddedildi"
                                             ): ?>
+                                            
 
                                                 <span
                                                     class="
@@ -3720,35 +5005,127 @@ body.dark-mode .evrak-page .view-button:hover {
                                         </td>
 
 
-                                        <!-- İŞLEMLER -->
-
-                                        <!-- İŞLEMLER -->
+                                       <!-- =====================================================
+     İŞLEMLER
+===================================================== -->
 
 <td>
 
     <div class="evrak-actions">
 
-        <!-- GÖRÜNTÜLE -->
+        <!-- =================================================
+             DOSYALAR (ALT ALTA SIRALI VE İSİMLİ)
+        ================================================== -->
 
-        <?php if (
-            !empty(
-                $evrak["dosya_yolu"]
-            )
-        ): ?>
+        <?php
 
-            <a
-                href="evrak-goruntule.php?id=<?= (int) $evrak["id"] ?>"
-                target="_blank"
-                class="evrak-action view"
-                title="Dosyayı Görüntüle"
-                aria-label="Dosyayı Görüntüle"
-            >
+        $dosyaStmt = $db->prepare("
+            SELECT
+                id,
+                dosya_adi,
+                dosya_yolu
+            FROM evrak_dosyalar
+            WHERE evrak_id = ?
+            ORDER BY id ASC
+        ");
 
-                <i
-                    data-lucide="eye"
-                ></i>
+        $dosyaStmt->execute([
+            (int) $evrak["id"]
+        ]);
 
-            </a>
+        $evrakDosyalari =
+            $dosyaStmt->fetchAll(
+                PDO::FETCH_ASSOC
+            );
+
+        ?>
+
+
+        <?php if (!empty($evrakDosyalari)): ?>
+
+            <div class="evrak-files-vertical">
+
+                <?php foreach ($evrakDosyalari as $dosya): ?>
+
+                    <div class="evrak-file-row">
+
+                        <!-- GÖRÜNTÜLE (GÖZ İKONU) -->
+                        <a
+                            href="evrak-goruntule.php?dosya_id=<?= (int) $dosya["id"] ?>"
+                            target="_blank"
+                            class="evrak-action view"
+                            title="<?= temizle($dosya["dosya_adi"]) ?>"
+                            aria-label="Dosyayı görüntüle"
+                            style="width: 26px; height: 26px;"
+                        >
+                            <i data-lucide="eye" style="width: 13px; height: 13px;"></i>
+                        </a>
+
+                        <!-- KÜÇÜK DOSYA ADI -->
+                        <a
+                            href="evrak-goruntule.php?dosya_id=<?= (int) $dosya["id"] ?>"
+                            target="_blank"
+                            class="evrak-file-name-label"
+                            title="<?= temizle($dosya["dosya_adi"]) ?>"
+                        >
+                            <?= temizle($dosya["dosya_adi"]) ?>
+                        </a>
+
+                        <!-- DOSYA SİL BUTONU -->
+                        <?php if ($yoneticiMi): ?>
+                            <form
+                                method="POST"
+                                class="evrak-inline-form"
+                                onsubmit="return confirm('Bu dosyayı silmek istediğinize emin misiniz?');"
+                            >
+                                <input type="hidden" name="islem" value="dosya_sil">
+                                <input type="hidden" name="dosya_id" value="<?= (int) $dosya["id"] ?>">
+
+                                <button
+                                    type="submit"
+                                    class="evrak-action danger"
+                                    title="Dosyayı Sil"
+                                    aria-label="Dosyayı Sil"
+                                    style="width: 22px; height: 22px;"
+                                >
+                                    <i data-lucide="trash-2" style="width: 11px; height: 11px;"></i>
+                                </button>
+                            </form>
+                        <?php endif; ?>
+
+                    </div>
+
+                <?php endforeach; ?>
+
+            </div>
+
+
+        <?php elseif (!empty($evrak["dosya_yolu"])): ?>
+
+            <!-- ESKİ TEKLİ DOSYA DESTEĞİ -->
+            <div class="evrak-files-vertical">
+                <div class="evrak-file-row">
+                    <a
+                        href="evrak-goruntule.php?id=<?= (int) $evrak["id"] ?>"
+                        target="_blank"
+                        class="evrak-action view"
+                        title="Dosyayı Görüntüle"
+                        aria-label="Dosyayı Görüntüle"
+                        style="width: 26px; height: 26px;"
+                    >
+                        <i data-lucide="eye" style="width: 13px; height: 13px;"></i>
+                    </a>
+
+                    <a
+                        href="evrak-goruntule.php?id=<?= (int) $evrak["id"] ?>"
+                        target="_blank"
+                        class="evrak-file-name-label"
+                        title="<?= temizle(basename($evrak["dosya_yolu"])) ?>"
+                    >
+                        <?= temizle(basename($evrak["dosya_yolu"])) ?>
+                    </a>
+                </div>
+            </div>
 
         <?php else: ?>
 
@@ -3756,19 +5133,16 @@ body.dark-mode .evrak-page .view-button:hover {
                 class="evrak-no-file"
                 title="Bu evrak için dosya yüklenmemiş"
             >
-
-                <i
-                    data-lucide="file-x"
-                ></i>
-
+                <i data-lucide="file-x"></i>
                 Dosya yok
-
             </span>
 
         <?php endif; ?>
 
 
-        <!-- DÜZENLE -->
+        <!-- =================================================
+             DÜZENLE
+        ================================================== -->
 
         <a
             href="evraklar.php?duzenle=<?= (int) $evrak["id"] ?>"
@@ -3776,17 +5150,149 @@ body.dark-mode .evrak-page .view-button:hover {
             title="Düzenle"
             aria-label="Düzenle"
         >
-
-            <i
-                data-lucide="pencil"
-            ></i>
-
+            <i data-lucide="pencil"></i>
         </a>
 
 
-        <!-- SADECE YÖNETİCİ -->
+        <!-- ================================================= 
+             YÖNETİCİ İŞLEMLERİ 
+        ================================================== -->
 
-<?php if ($yoneticiMi): ?>
+        <?php if ($yoneticiMi): ?>
+
+
+            <!-- =================================================
+                 ARŞİVLE
+            ================================================== -->
+
+            <?php if (
+                $durum === "onaylandi" ||
+                $durum === "reddedildi"
+            ): ?>
+
+                <form
+                    method="POST"
+                    class="evrak-inline-form"
+                    onsubmit="
+                        return confirm(
+                            'Bu evrakı arşivlemek istediğinize emin misiniz?'
+                        );
+                    "
+                >
+
+                    <input
+                        type="hidden"
+                        name="islem"
+                        value="arsivle"
+                    >
+
+                    <input
+                        type="hidden"
+                        name="evrak_id"
+                        value="<?= (int) $evrak["id"] ?>"
+                    >
+
+                    <button
+                        type="submit"
+                        class="evrak-action back"
+                        title="Arşivle"
+                        aria-label="Arşivle"
+                    >
+
+                        <i data-lucide="archive"></i>
+
+                    </button>
+
+                </form>
+
+            <?php endif; ?>
+
+
+            <!-- =================================================
+                 ARŞİVDEN ÇIKAR
+            ================================================== -->
+
+            <?php if (
+                $durum === "arsivlendi"
+            ): ?>
+
+                <form
+                    method="POST"
+                    class="evrak-inline-form"
+                    onsubmit="
+                        return confirm(
+                            'Bu evrakı arşivden çıkarmak istediğinize emin misiniz?'
+                        );
+                    "
+                >
+
+                    <input
+                        type="hidden"
+                        name="islem"
+                        value="arsivden_cikar"
+                    >
+
+                    <input
+                        type="hidden"
+                        name="evrak_id"
+                        value="<?= (int) $evrak["id"] ?>"
+                    >
+
+                    <button
+                        type="submit"
+                        class="evrak-action back"
+                        title="Arşivden Çıkar"
+                        aria-label="Arşivden Çıkar"
+                    >
+
+                        <i data-lucide="archive-restore"></i>
+
+                    </button>
+
+                </form>
+
+            <?php endif; ?>
+
+            <!-- =================================================
+                 EVRAKI TAMAMEN SİL
+            ================================================== -->
+
+            <form
+                method="POST"
+                class="evrak-inline-form"
+                onsubmit="
+                    return confirm(
+                        'Bu evrakı ve bağlı tüm dosyaları tamamen silmek istediğinize emin misiniz?'
+                    );
+                "
+            >
+
+                <input
+                    type="hidden"
+                    name="islem"
+                    value="evrak_sil"
+                >
+
+                <input
+                    type="hidden"
+                    name="evrak_id"
+                    value="<?= (int) $evrak["id"] ?>"
+                >
+
+                <button
+                    type="submit"
+                    class="evrak-action danger"
+                    title="Evrakı Tamamen Sil"
+                    aria-label="Evrakı Tamamen Sil"
+                >
+
+                    <i
+                        data-lucide="trash-2"
+                    ></i>
+
+                </button>
+
+            </form>
 
 
             <?php if (
@@ -3799,7 +5305,7 @@ body.dark-mode .evrak-page .view-button:hover {
 
                 <form
                     method="POST"
-                    style="display:inline;"
+                    class="evrak-inline-form"
                 >
 
                     <input
@@ -3867,7 +5373,7 @@ body.dark-mode .evrak-page .view-button:hover {
 
                 <form
                     method="POST"
-                    style="display:inline;"
+                    class="evrak-inline-form"
                 >
 
                     <input
@@ -3911,7 +5417,7 @@ body.dark-mode .evrak-page .view-button:hover {
 
                 <form
                     method="POST"
-                    style="display:inline;"
+                    class="evrak-inline-form"
                 >
 
                     <input
@@ -4032,96 +5538,365 @@ body.dark-mode .evrak-page .view-button:hover {
 <script>
 
     lucide.createIcons();
+
+
     function evrakFormunuAc()
-{
-    const formCard =
-        document.getElementById("evrakFormCard");
+    {
+        const formCard =
+            document.getElementById("evrakFormCard");
 
-    if (!formCard) {
-        return;
+        if (!formCard) {
+            return;
+        }
+
+        formCard.style.display =
+            "block";
+
+
+        const listCard =
+            document.getElementById("evrakListCard");
+
+        if (listCard) {
+
+            listCard.style.display =
+                "none";
+        }
+
+
+        formCard.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+        });
     }
-
-formCard.style.display = "block";
-
-const listCard =
-    document.getElementById("evrakListCard");
-
-if (listCard) {
-    listCard.style.display = "none";
-}
-
-formCard.scrollIntoView({
-    behavior: "smooth",
-    block: "start"
-});
-}
 
 
     /* =====================================================
        DOSYA ADI
     ===================================================== */
+    /* =====================================================
+   ÇOKLU DOSYA SEÇİMİ
+===================================================== */
 
-    const fileInput =
-        document.getElementById(
-            "evrak_dosyasi"
+const fileInput =
+    document.getElementById(
+        "evrak_dosyasi"
+    );
+
+const selectedFilesContainer =
+    document.getElementById(
+        "seciliDosyalar"
+    );
+
+
+let secilenDosyalar = [];
+
+
+/* =====================================================
+   DOSYA LİSTESİNİ GÖSTER
+===================================================== */
+
+function dosyalariGoster()
+{
+    if (!selectedFilesContainer) {
+        return;
+    }
+
+    selectedFilesContainer.innerHTML = "";
+
+    if (secilenDosyalar.length === 0) {
+
+        selectedFilesContainer.classList.remove(
+            "show"
         );
 
+        return;
+    }
 
-    const fileName =
-        document.getElementById(
-            "fileName"
-        );
+
+    selectedFilesContainer.classList.add(
+        "show"
+    );
+
+
+    secilenDosyalar.forEach(
+        function(dosya, index)
+        {
+
+            const item =
+                document.createElement(
+                    "div"
+                );
+
+            item.className =
+                "selected-file-item";
+
+
+            /* DOSYA BİLGİSİ */
+
+            const info =
+                document.createElement(
+                    "div"
+                );
+
+            info.className =
+                "selected-file-info";
+
+
+            const icon =
+                document.createElement(
+                    "div"
+                );
+
+            icon.className =
+                "selected-file-icon";
+
+            icon.innerHTML =
+                '<i data-lucide="file"></i>';
+
+
+            const name =
+                document.createElement(
+                    "span"
+                );
+
+            name.className =
+                "selected-file-name";
+
+            name.textContent =
+                dosya.name;
+
+            name.title =
+                dosya.name;
+
+
+            info.appendChild(
+                icon
+            );
+
+            info.appendChild(
+                name
+            );
+
+
+            /* BUTONLAR */
+
+            const actions =
+                document.createElement(
+                    "div"
+                );
+
+            actions.className =
+                "selected-file-actions";
+
+
+            /* GÖRÜNTÜLE */
+
+            const viewButton =
+                document.createElement(
+                    "a"
+                );
+
+            viewButton.className =
+                "selected-file-button selected-file-view";
+
+            viewButton.href =
+                URL.createObjectURL(
+                    dosya
+                );
+
+            viewButton.target =
+                "_blank";
+
+            viewButton.rel =
+                "noopener noreferrer";
+
+            viewButton.innerHTML =
+                '<i data-lucide="eye"></i> Görüntüle';
+
+            viewButton.title =
+                "Dosyayı görüntüle";
+
+
+            /* KALDIR */
+
+            const removeButton =
+                document.createElement(
+                    "button"
+                );
+
+            removeButton.type =
+                "button";
+
+            removeButton.className =
+                "selected-file-button selected-file-remove";
+
+            removeButton.innerHTML =
+                '<i data-lucide="x"></i> Kaldır';
+
+            removeButton.title =
+                "Dosyayı kaldır";
+
+
+            removeButton.addEventListener(
+                "click",
+                function()
+                {
+                    secilenDosyalar.splice(
+                        index,
+                        1
+                    );
+
+                    dosyalariGoster();
+
+                    dosyalariInputaAktar();
+                }
+            );
+
+
+            actions.appendChild(
+                viewButton
+            );
+
+            actions.appendChild(
+                removeButton
+            );
+
+
+            item.appendChild(
+                info
+            );
+
+            item.appendChild(
+                actions
+            );
+
+
+            selectedFilesContainer.appendChild(
+                item
+            );
+
+        }
+    );
 
 
     if (
-        fileInput &&
-        fileName
+        typeof lucide !== "undefined"
     ) {
 
-        fileInput.addEventListener(
-            "change",
-            function () {
-
-if (
-    this.files &&
-    this.files.length > 0
-) {
-
-    fileName.textContent =
-        this.files[0].name;
-
-    const fileArea =
-        document.querySelector(
-            ".evrak-file-area"
-        );
-
-    if (fileArea) {
-        fileArea.classList.add(
-            "file-selected"
-        );
-    }
-
-} else {
-
-    fileName.textContent =
-        "Dosya yüklemek isteğe bağlıdır";
-
-    const fileArea =
-        document.querySelector(
-            ".evrak-file-area"
-        );
-
-    if (fileArea) {
-        fileArea.classList.remove(
-            "file-selected"
-        );
+        lucide.createIcons();
     }
 }
 
-            }
-        );
 
+/* =====================================================
+   DOSYALARI INPUT'A GERİ YAZ
+===================================================== */
+
+function dosyalariInputaAktar()
+{
+    if (!fileInput) {
+        return;
     }
+
+
+    const dataTransfer =
+        new DataTransfer();
+
+
+    secilenDosyalar.forEach(
+        function(dosya)
+        {
+
+            dataTransfer.items.add(
+                dosya
+            );
+
+        }
+    );
+
+
+    fileInput.files =
+        dataTransfer.files;
+}
+
+
+/* =====================================================
+   DOSYA SEÇİMİ
+===================================================== */
+
+if (fileInput) {
+
+    fileInput.addEventListener(
+        "change",
+        function()
+        {
+
+            const yeniDosyalar =
+                Array.from(
+                    this.files
+                );
+
+
+            yeniDosyalar.forEach(
+                function(dosya)
+                {
+
+                    const zatenVar =
+                        secilenDosyalar.some(
+                            function(mevcutDosya)
+                            {
+
+                                return (
+                                    mevcutDosya.name ===
+                                    dosya.name &&
+                                    mevcutDosya.size ===
+                                    dosya.size &&
+                                    mevcutDosya.lastModified ===
+                                    dosya.lastModified
+                                );
+
+                            }
+                        );
+
+
+                    if (!zatenVar) {
+
+                        secilenDosyalar.push(
+                            dosya
+                        );
+
+                    }
+
+                }
+            );
+
+
+            dosyalariInputaAktar();
+
+            dosyalariGoster();
+
+
+            const fileArea =
+                document.querySelector(
+                    ".evrak-file-area"
+                );
+
+
+            if (
+                fileArea &&
+                secilenDosyalar.length > 0
+            ) {
+
+                fileArea.classList.add(
+                    "file-selected"
+                );
+
+            }
+
+        }
+    );
+
+}
 
 
     /* =====================================================

@@ -219,6 +219,8 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <div class="topbar-right">
 
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
+
 
                 <div class="theme-switch">
 

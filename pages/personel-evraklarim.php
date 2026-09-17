@@ -18,12 +18,12 @@ require_once "../config/database.php";
 /* =========================================================
    GİRİŞ YAPAN PERSONELİ BUL
 ========================================================= */
-
 $sql = "
     SELECT
         id,
         ad,
-        soyad
+        soyad,
+        gorev
     FROM personeller
     WHERE kullanici_id = ?
 ";
@@ -41,160 +41,34 @@ if (!$personel) {
 }
 
 $personel_id = (int) $personel["id"];
+$personel_adi = trim(
+    ($personel["ad"] ?? "") . " " . ($personel["soyad"] ?? "")
+);
+
+if ($personel_adi === "") {
+    $personel_adi = $_SESSION["kullanici_adi"];
+}
+
+$personel_gorevi = trim(
+    $personel["gorev"] ?? ""
+);
+
+if ($personel_gorevi === "") {
+    $personel_gorevi = "Görev bilgisi bulunmuyor";
+}
 
 
 /* =========================================================
-   DOSYA GÖRÜNTÜLEME
-   Örnek:
-   personel-evraklarim.php?dosya=5
+   YARDIMCI FONKSİYON
 ========================================================= */
 
-if (isset($_GET["dosya"])) {
-
-    $dosya_id = filter_input(
-        INPUT_GET,
-        "dosya",
-        FILTER_VALIDATE_INT
+function temizle(string $veri): string
+{
+    return htmlspecialchars(
+        $veri,
+        ENT_QUOTES,
+        "UTF-8"
     );
-
-    if (!$dosya_id) {
-        http_response_code(400);
-        exit("Geçersiz evrak.");
-    }
-
-
-    /* Sadece giriş yapan personele ait dosyayı getir */
-
-    $sql = "
-        SELECT
-            dosya_yolu
-        FROM evraklar
-        WHERE id = ?
-        AND personel_id = ?
-        LIMIT 1
-    ";
-
-    $stmt = $db->prepare($sql);
-
-    $stmt->execute([
-        $dosya_id,
-        $personel_id
-    ]);
-
-    $dosya = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if (!$dosya) {
-        http_response_code(404);
-        exit("Evrak bulunamadı.");
-    }
-
-
-    if (empty($dosya["dosya_yolu"])) {
-        http_response_code(404);
-        exit("Bu evraka ait dosya bulunmuyor.");
-    }
-
-
-    /*
-        evraklar.php dosyasında yükleme yolu:
-
-        uploads/evraklar/dosya.pdf
-
-        olduğu için pages klasörünün içinden dosyayı buluyoruz.
-    */
-
-    $dosya_yolu = ltrim(
-        $dosya["dosya_yolu"],
-        "/\\"
-    );
-
-    $gercek_dosya = __DIR__ . "/" . $dosya_yolu;
-
-
-    if (!is_file($gercek_dosya)) {
-        http_response_code(404);
-        exit("Dosya sunucuda bulunamadı.");
-    }
-
-
-    if (!is_readable($gercek_dosya)) {
-        http_response_code(403);
-        exit("Dosya okunamıyor.");
-    }
-
-
-    /* Dosya uzantısı */
-
-    $uzanti = strtolower(
-        pathinfo(
-            $gercek_dosya,
-            PATHINFO_EXTENSION
-        )
-    );
-
-
-    /* MIME türleri */
-
-    $mime_turleri = [
-        "pdf" =>
-            "application/pdf",
-
-        "jpg" =>
-            "image/jpeg",
-
-        "jpeg" =>
-            "image/jpeg",
-
-        "png" =>
-            "image/png",
-
-        "doc" =>
-            "application/msword",
-
-        "docx" =>
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-
-        "xls" =>
-            "application/vnd.ms-excel",
-
-        "xlsx" =>
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    ];
-
-
-    $mime = $mime_turleri[$uzanti]
-        ?? "application/octet-stream";
-
-
-    $dosya_adi = basename($gercek_dosya);
-
-
-    header("Content-Type: " . $mime);
-
-    header(
-        "Content-Length: " . filesize($gercek_dosya)
-    );
-
-    header(
-        'Content-Disposition: inline; filename="' .
-        str_replace(
-            '"',
-            "",
-            $dosya_adi
-        ) .
-        '"'
-    );
-
-    header(
-        "Cache-Control: private, max-age=0, must-revalidate"
-    );
-
-    header("Pragma: public");
-
-
-    readfile($gercek_dosya);
-
-    exit;
 }
 
 
@@ -252,9 +126,9 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <style>
 
-        /* =====================================================
+        /* =========================================================
            KULLANICI AÇILIR MENÜ
-        ===================================================== */
+        ========================================================= */
 
         .user-dropdown-wrapper {
             position: relative;
@@ -334,21 +208,111 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
 
 
-        /* =====================================================
+        /* =========================================================
+           TABLO ALANI (KAYDIRMA ÇUBUĞU KALDIRILMIŞ ŞIK DÜZEN)
+        ========================================================= */
+
+        .table-container {
+            width: 100%;
+            overflow-x: hidden;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            margin-top: 18px;
+            background: #ffffff;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            min-width: 0 !important;
+        }
+
+        .data-table thead {
+            background: #f8fafc;
+        }
+
+        .data-table th {
+            padding: 13px 14px;
+            text-align: left;
+            color: var(--text-soft);
+            font-size: 11px;
+            font-weight: 750;
+            letter-spacing: .25px;
+            text-transform: uppercase;
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        .data-table td {
+            padding: 14px;
+            color: var(--text);
+            font-size: 13px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        .data-table tbody tr:hover {
+            background: #f8faff;
+        }
+
+        .data-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Sütun Oranları */
+        .data-table th:nth-child(1),
+        .data-table td:nth-child(1) {
+            width: 45px;
+            text-align: center;
+        }
+
+        .data-table th:nth-child(2),
+        .data-table td:nth-child(2) {
+            width: 22%;
+        }
+
+        .data-table th:nth-child(3),
+        .data-table td:nth-child(3) {
+            width: 14%;
+        }
+
+        .data-table th:nth-child(4),
+        .data-table td:nth-child(4) {
+            width: 20%;
+        }
+
+        .data-table th:nth-child(5),
+        .data-table td:nth-child(5) {
+            width: 12%;
+        }
+
+        .data-table th:nth-child(6),
+        .data-table td:nth-child(6) {
+            width: 14%;
+        }
+
+        .data-table th:nth-child(7),
+        .data-table td:nth-child(7) {
+            width: 18%;
+        }
+
+
+        /* =========================================================
            EVRAK DURUMLARI
-        ===================================================== */
+        ========================================================= */
 
         .personel-evrak-status {
             display: inline-flex;
             align-items: center;
             gap: 6px;
 
-            padding: 6px 10px;
+            padding: 5px 9px;
 
             border-radius: 999px;
 
-            font-size: 11px;
-            font-weight: 700;
+            font-size: 10px;
+            font-weight: 750;
 
             white-space: nowrap;
 
@@ -356,8 +320,8 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
 
         .personel-evrak-status svg {
-            width: 14px;
-            height: 14px;
+            width: 13px;
+            height: 13px;
         }
 
         .personel-evrak-status.pending {
@@ -379,54 +343,232 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
         }
 
 
-        /* =====================================================
+        /* =========================================================
            RED NEDENİ
-        ===================================================== */
+        ========================================================= */
 
         .personel-red-reason {
-            margin-top: 7px;
-
-            max-width: 220px;
-
-            font-size: 11px;
-
-            line-height: 1.4;
-
+            margin-top: 5px;
+            max-width: 160px;
+            font-size: 10px;
+            line-height: 1.3;
             color: #b64545;
-        }
-
-
-        /* =====================================================
-           DOSYA BUTONU
-        ===================================================== */
-
-        .personel-file-button {
-            display: inline-flex;
-
-            align-items: center;
-
-            gap: 6px;
-
+            overflow: hidden;
+            text-overflow: ellipsis;
             white-space: nowrap;
         }
 
 
-        .personel-file-button svg {
-            width: 15px;
-            height: 15px;
+        /* =========================================================
+           EVRAK ADI (MAVİ VE ALTI ÇİZİLİ LİNK)
+        ========================================================= */
+
+        .evrak-name {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .evrak-title-link {
+            text-decoration: underline !important;
+            text-underline-offset: 4px;
+            text-decoration-thickness: 1.5px;
+            color: #2563eb !important;
+            display: inline-block;
+            max-width: 100%;
+            transition: all .2s ease;
+        }
+
+        .evrak-title-link strong {
+            display: block;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            font-size: 13px;
+            font-weight: 700;
+            color: #2563eb !important;
+            cursor: pointer;
+            transition: color .2s ease, transform .2s ease;
+        }
+
+        .evrak-title-link:hover {
+            text-decoration-thickness: 2.5px;
+            text-decoration-color: #1e40af !important;
+        }
+
+        .evrak-title-link:hover strong {
+            color: #1e40af !important;
+            transform: translateX(1px);
+        }
+
+        body.dark-mode .evrak-title-link,
+        body.dark-mode .evrak-title-link strong {
+            color: #60a5fa !important;
+        }
+
+        body.dark-mode .evrak-title-link:hover {
+            text-decoration-color: #93c5fd !important;
+        }
+
+        body.dark-mode .evrak-title-link:hover strong {
+            color: #93c5fd !important;
+        }
+
+        .evrak-description {
+            display: block;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            color: var(--text-soft);
+            font-size: 11px;
         }
 
 
-        /* =====================================================
+        /* =========================================================
+           İŞLEM ALANI & DOSYALAR
+        ========================================================= */
+
+        .evrak-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: nowrap;
+        }
+
+        .evrak-action {
+            position: relative;
+            width: 32px;
+            height: 32px;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all .18s ease;
+        }
+
+        .evrak-action svg {
+            width: 14px;
+            height: 14px;
+            stroke-width: 2.2;
+        }
+
+        .evrak-action:hover {
+            transform: translateY(-2px);
+        }
+
+        .evrak-action.view {
+            background: #eef4ff;
+            color: #3975e8;
+            border-color: #d8e5ff;
+            box-shadow: 0 2px 6px rgba(57, 117, 232, .08);
+        }
+
+        .evrak-action.view:hover {
+            background: #e2ecff;
+            border-color: #c4d7ff;
+            color: #2865d9;
+        }
+
+        .evrak-files-vertical {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            align-items: flex-start;
+            flex-shrink: 0;
+            max-width: 100%;
+        }
+
+        .evrak-file-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: #f4f7fb;
+            padding: 3px 7px;
+            border-radius: 7px;
+            border: 1px solid #e3e8ef;
+            flex-shrink: 0;
+            max-width: 100%;
+        }
+
+        .evrak-file-name-label {
+            display: inline-block;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 11px;
+            font-weight: 600;
+            color: #4a5568;
+            text-decoration: none;
+            line-height: 1.2;
+        }
+
+        .evrak-file-name-label:hover {
+            color: #3975e8;
+        }
+
+        .evrak-no-file {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            min-height: 30px;
+            padding: 0 9px;
+            border-radius: 8px;
+            background: #f5f7fa;
+            color: #7b8798;
+            border: 1px solid #e3e8ef;
+            font-size: 10px;
+            font-weight: 650;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .evrak-no-file svg {
+            width: 13px;
+            height: 13px;
+            stroke-width: 2;
+        }
+
+
+        /* =========================================================
            DARK MODE
-        ===================================================== */
+        ========================================================= */
+
+        body.dark-mode .table-container {
+            background: #0f1826;
+            border-color: #2a394f;
+        }
+
+        body.dark-mode .data-table thead {
+            background: #151f2f;
+        }
+
+        body.dark-mode .data-table th {
+            background: #151f2f;
+            color: #8f9eb2;
+            border-color: #2a394f;
+        }
+
+        body.dark-mode .data-table td {
+            color: #e5ebf3;
+            border-color: #243247;
+        }
+
+        body.dark-mode .data-table tbody tr:hover {
+            background: #162235;
+        }
 
         body.dark-mode .user-dropdown {
             background: #121b2d;
             border-color: #26344a;
-
-            box-shadow:
-                0 12px 30px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28);
         }
 
         body.dark-mode .user-dropdown-item {
@@ -460,20 +602,35 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
             color: #f0a2a2;
         }
 
+        body.dark-mode .evrak-action.view {
+            background: #172b4d;
+            color: #82aaff;
+            border-color: #29446e;
+        }
 
-        /* =====================================================
-           MOBİL
-        ===================================================== */
+        body.dark-mode .evrak-action.view:hover {
+            background: #1c355c;
+            color: #9abbff;
+            border-color: #365883;
+        }
 
-        @media (max-width: 900px) {
+        body.dark-mode .evrak-file-row {
+            background: #152033;
+            border-color: #24354d;
+        }
 
-            .table-container {
-                overflow-x: auto;
-            }
+        body.dark-mode .evrak-file-name-label {
+            color: #cbd5e1;
+        }
 
-            .data-table {
-                min-width: 900px;
-            }
+        body.dark-mode .evrak-file-name-label:hover {
+            color: #82aaff;
+        }
+
+        body.dark-mode .evrak-no-file {
+            background: #1a2434;
+            color: #8997aa;
+            border-color: #2d3a4d;
         }
 
     </style>
@@ -650,7 +807,9 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <div class="topbar-right">
 
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
 
+   <?php require_once __DIR__ . "/../personel-bildirimler.php"; ?>
                 <!-- TEMA -->
 
                 <div class="theme-switch">
@@ -682,82 +841,77 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <div class="topbar-divider"></div>
 
 
-                <!-- KULLANICI -->
+               <!-- KULLANICI -->
 
-                <div class="user-dropdown-wrapper">
+<div class="user-dropdown-wrapper">
 
-                    <div
-                        class="user-area"
-                        id="userArea"
-                    >
+    <div
+        class="user-area"
+        id="userArea"
+    >
 
-                        <div class="user-avatar">
+        <div class="user-avatar">
 
-                            <?php
+            <?= htmlspecialchars(
+                strtoupper(
+                    mb_substr(
+                        $personel["ad"] ?: $_SESSION["kullanici_adi"],
+                        0,
+                        1,
+                        "UTF-8"
+                    )
+                )
+            ) ?>
 
-                            echo strtoupper(
-                                substr(
-                                    $_SESSION["kullanici_adi"],
-                                    0,
-                                    1
-                                )
-                            );
-
-                            ?>
-
-                        </div>
-
-
-                        <div class="user-text">
-
-                            <strong>
-
-                                <?php
-
-                                echo htmlspecialchars(
-                                    $_SESSION["kullanici_adi"]
-                                );
-
-                                ?>
-
-                            </strong>
-
-                            <span>
-                                Personel
-                            </span>
-
-                        </div>
+        </div>
 
 
-                        <i
-                            data-lucide="chevron-down"
-                            class="user-arrow"
-                        ></i>
+        <div class="user-text">
 
-                    </div>
+            <strong>
+                <?= htmlspecialchars(
+                    $personel_adi
+                ) ?>
+            </strong>
+
+            <span>
+                <?= htmlspecialchars(
+                    $personel_gorevi
+                ) ?>
+            </span>
+
+        </div>
 
 
-                    <div
-                        class="user-dropdown"
-                        id="userDropdown"
-                    >
+        <i
+            data-lucide="chevron-down"
+            class="user-arrow"
+        ></i>
 
-                        <a
-                            href="../logout.php"
-                            class="user-dropdown-item"
-                        >
+    </div>
 
-                            <i data-lucide="log-out"></i>
 
-                            <span>
-                                Çıkış Yap
-                            </span>
+    <div
+        class="user-dropdown"
+        id="userDropdown"
+    >
 
-                        </a>
+        <a
+            href="../logout.php"
+            class="user-dropdown-item"
+        >
 
-                    </div>
+            <i data-lucide="log-out"></i>
 
-                </div>
+            <span>
+                Çıkış Yap
+            </span>
+
+        </a>
+
+    </div>
+
+</div>
 
             </div>
 
@@ -778,7 +932,7 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 </h1>
 
                 <p>
-                    Size ait kayıtlı evrakları buradan görüntüleyebilirsiniz.
+                    Size ait kayıtlı evrakları buradan görüntüleyebilir, resmi çıktılarını alabilir veya PDF olarak indirebilirsiniz.
                 </p>
 
             </div>
@@ -857,7 +1011,7 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                     </th>
 
                                     <th>
-                                        Dosya
+                                        İşlemler
                                     </th>
 
                                 </tr>
@@ -887,30 +1041,29 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                         </td>
 
 
-                                        <!-- EVRAK -->
+                                        <!-- EVRAK ADI (TIKLANABİLİR MAVİ LİNK) -->
 
                                         <td>
 
-                                            <div class="table-name">
+                                            <div class="evrak-name">
 
-                                                <div class="table-icon">
+                                                <a 
+                                                    href="evrak-detay.php?id=<?= (int)$evrak['id'] ?>" 
+                                                    class="evrak-title-link"
+                                                    title="Resmi Evrak Formunu Görüntüle ve Yazdır / PDF İndir"
+                                                >
+                                                    <strong>
+                                                        <?= temizle($evrak["evrak_adi"]) ?>
+                                                    </strong>
+                                                </a>
 
-                                                    <i
-                                                        data-lucide="file-text"
-                                                    ></i>
+                                                <?php if (!empty($evrak["aciklama"])): ?>
 
-                                                </div>
+                                                    <span class="evrak-description">
+                                                        <?= temizle($evrak["aciklama"]) ?>
+                                                    </span>
 
-
-                                                <span>
-
-                                                    <?= htmlspecialchars(
-                                                        $evrak["evrak_adi"],
-                                                        ENT_QUOTES,
-                                                        "UTF-8"
-                                                    ) ?>
-
-                                                </span>
+                                                <?php endif; ?>
 
                                             </div>
 
@@ -1066,6 +1219,7 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                                                     <div
                                                         class="personel-red-reason"
+                                                        title="<?= htmlspecialchars($evrak['red_nedeni'], ENT_QUOTES, 'UTF-8') ?>"
                                                     >
 
                                                         <strong>
@@ -1105,42 +1259,109 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                         </td>
 
 
-                                        <!-- DOSYA -->
+                                        <!-- İŞLEMLER (DOSYA GÖRÜNTÜLEME) -->
 
                                         <td>
 
-                                            <?php if (
-                                                !empty(
-                                                    $evrak["dosya_yolu"]
-                                                )
-                                            ): ?>
+                                            <div class="evrak-actions">
 
-                                                <a
-                                                    href="personel-evraklarim.php?dosya=<?= (int) $evrak["id"] ?>"
-                                                    target="_blank"
-                                                    class="
-                                                        action-button
-                                                        edit
-                                                        personel-file-button
-                                                    "
-                                                    title="Dosyayı Görüntüle"
-                                                >
+                                                <?php
 
-                                                    <i
-                                                        data-lucide="eye"
-                                                    ></i>
+                                                $dosyaStmt = $db->prepare("
+                                                    SELECT
+                                                        id,
+                                                        dosya_adi,
+                                                        dosya_yolu
+                                                    FROM evrak_dosyalar
+                                                    WHERE evrak_id = ?
+                                                    ORDER BY id ASC
+                                                ");
 
-                                                    Görüntüle
+                                                $dosyaStmt->execute([
+                                                    (int) $evrak["id"]
+                                                ]);
 
-                                                </a>
+                                                $evrakDosyalari =
+                                                    $dosyaStmt->fetchAll(
+                                                        PDO::FETCH_ASSOC
+                                                    );
 
-                                            <?php else: ?>
+                                                ?>
 
-                                                <span>
-                                                    Dosya yok
-                                                </span>
+                                                <?php if (!empty($evrakDosyalari)): ?>
 
-                                            <?php endif; ?>
+                                                    <div class="evrak-files-vertical">
+
+                                                        <?php foreach ($evrakDosyalari as $dosya): ?>
+
+                                                            <div class="evrak-file-row">
+
+                                                                <a
+                                                                    href="evrak-goruntule.php?dosya_id=<?= (int) $dosya["id"] ?>"
+                                                                    target="_blank"
+                                                                    class="evrak-action view"
+                                                                    title="<?= temizle($dosya["dosya_adi"]) ?>"
+                                                                    aria-label="Dosyayı görüntüle"
+                                                                    style="width: 26px; height: 26px;"
+                                                                >
+                                                                    <i data-lucide="eye" style="width: 13px; height: 13px;"></i>
+                                                                </a>
+
+                                                                <a
+                                                                    href="evrak-goruntule.php?dosya_id=<?= (int) $dosya["id"] ?>"
+                                                                    target="_blank"
+                                                                    class="evrak-file-name-label"
+                                                                    title="<?= temizle($dosya["dosya_adi"]) ?>"
+                                                                >
+                                                                    <?= temizle($dosya["dosya_adi"]) ?>
+                                                                </a>
+
+                                                            </div>
+
+                                                        <?php endforeach; ?>
+
+                                                    </div>
+
+                                                <?php elseif (!empty($evrak["dosya_yolu"])): ?>
+
+                                                    <!-- ESKİ TEKLİ DOSYA DESTEĞİ -->
+                                                    <div class="evrak-files-vertical">
+                                                        <div class="evrak-file-row">
+                                                            <a
+                                                                href="evrak-goruntule.php?id=<?= (int) $evrak["id"] ?>"
+                                                                target="_blank"
+                                                                class="evrak-action view"
+                                                                title="Dosyayı Görüntüle"
+                                                                aria-label="Dosyayı Görüntüle"
+                                                                style="width: 26px; height: 26px;"
+                                                            >
+                                                                <i data-lucide="eye" style="width: 13px; height: 13px;"></i>
+                                                            </a>
+
+                                                            <a
+                                                                href="evrak-goruntule.php?id=<?= (int) $evrak["id"] ?>"
+                                                                target="_blank"
+                                                                class="evrak-file-name-label"
+                                                                title="<?= temizle(basename($evrak["dosya_yolu"])) ?>"
+                                                            >
+                                                                <?= temizle(basename($evrak["dosya_yolu"])) ?>
+                                                            </a>
+                                                        </div>
+                                                    </div>
+
+                                                <?php else: ?>
+
+                                                    <span
+                                                        class="evrak-no-file"
+                                                        title="Bu evrak için dosya yüklenmemiş"
+                                                    >
+                                                        <i data-lucide="file-x"></i>
+                                                        Dosya yok
+                                                    </span>
+
+                                                <?php endif; ?>
+
+                                            </div>
 
                                         </td>
 
@@ -1202,11 +1423,6 @@ $evraklar = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <script>
     lucide.createIcons();
 </script>
-
-</body>
-
-</html>
-
 
 </body>
 

@@ -11,31 +11,109 @@ require_once "../config/database.php";
 
 
 /* ==========================================
+   GİRİŞ YAPAN KULLANICI
+========================================== */
+
+$stmt = $db->prepare("
+    SELECT
+        id,
+        ad,
+        soyad,
+        kullanici_adi,
+        rol
+    FROM kullanicilar
+    WHERE id = ?
+    LIMIT 1
+");
+
+$stmt->execute([
+    $_SESSION["kullanici_id"]
+]);
+
+$giris_yapan_kullanici = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$giris_yapan_kullanici) {
+    session_destroy();
+    header("Location: ../login.php");
+    exit;
+}
+
+
+/* ==========================================
+   AD SOYAD
+========================================== */
+
+$kullanici_ad_soyad = trim(
+    ($giris_yapan_kullanici["ad"] ?? "") .
+    " " .
+    ($giris_yapan_kullanici["soyad"] ?? "")
+);
+
+
+/* Ad soyad boşsa kullanıcı adını göster */
+
+if ($kullanici_ad_soyad === "") {
+
+    $kullanici_ad_soyad =
+        $giris_yapan_kullanici["kullanici_adi"];
+
+}
+
+
+/* ==========================================
+   ROL ETİKETİ
+========================================== */
+
+if (
+    in_array(
+        $giris_yapan_kullanici["rol"],
+        ["yonetici", "admin"],
+        true
+    )
+) {
+
+    $rol_etiketi = "Yönetici";
+
+} elseif (
+    $giris_yapan_kullanici["rol"] === "personel"
+) {
+
+    $rol_etiketi = "Personel";
+
+} else {
+
+    $rol_etiketi = "Kullanıcı";
+
+}
+
+
+/* ==========================================
    PERSONELLERİ VERİTABANINDAN ÇEK
 ========================================== */
 
-$sql = "SELECT
-            p.id,
-            p.ad,
-            p.soyad,
-            p.telefon,
-            p.email,
-            p.gorev,
-            p.kayit_tarihi,
-            p.durum,
-            p.ayrilma_tarihi,
-            b.birim_adi
-        FROM personeller p
-        LEFT JOIN birimler b
-            ON p.birim_id = b.id
-        WHERE p.durum = 'aktif'
-        ORDER BY p.id DESC";
+$sql = "
+    SELECT
+        p.id,
+        p.ad,
+        p.soyad,
+        p.telefon,
+        p.email,
+        p.gorev,
+        p.kayit_tarihi,
+        p.durum,
+        p.ayrilma_tarihi,
+        b.birim_adi
+    FROM personeller p
+    LEFT JOIN birimler b
+        ON p.birim_id = b.id
+    WHERE p.durum = 'aktif'
+    ORDER BY p.id DESC
+";
 
 $stmt = $db->prepare($sql);
 $stmt->execute();
 
 $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
 ?>
 
 <!DOCTYPE html>
@@ -47,13 +125,84 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     <meta
         name="viewport"
-        content="width=device-width, initial-scale=1.0">
+        content="width=device-width, initial-scale=1.0"
+    >
 
-    <title>Personeller - Birim Takip</title>
+    <title>
+        Personeller - Birim Takip
+    </title>
 
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <link rel="stylesheet" href="../css/style.css">
+    <link
+        rel="stylesheet"
+        href="../css/style.css"
+    >
+
+    <style>
+
+        /* =====================================================
+           DURUMA GÖRE RENKLER
+        ===================================================== */
+
+        .personel-gorev-durum.bekliyor {
+            background: #fff6e5;
+            color: #a97212;
+            border-color: #f0d9a5;
+        }
+
+
+        .personel-gorev-durum.devam-ediyor {
+            background: #eaf1ff;
+            color: #3372f4;
+            border-color: #cbd9fa;
+        }
+
+
+        .personel-gorev-durum.tamamlandi {
+            background: #eaf8f0;
+            color: #21804c;
+            border-color: #c8ead7;
+        }
+
+
+        /* =====================================================
+           DARK MODE
+        ===================================================== */
+
+        body.dark-mode .personel-gorev-adi {
+            color: #e5ebf3;
+        }
+
+
+        body.dark-mode .personel-gorev-durum {
+            background: #121b2d;
+            border-color: #2a394f;
+            color: #e5ebf3;
+        }
+
+
+        body.dark-mode .personel-gorev-durum.bekliyor {
+            background: #382d16;
+            color: #e3bf6b;
+            border-color: #5a481f;
+        }
+
+
+        body.dark-mode .personel-gorev-durum.devam-ediyor {
+            background: #172c50;
+            color: #9db8ff;
+            border-color: #304c80;
+        }
+
+
+        body.dark-mode .personel-gorev-durum.tamamlandi {
+            background: #183a29;
+            color: #7bd9a4;
+            border-color: #2c6044;
+        }
+
+    </style>
 
 </head>
 
@@ -75,7 +224,9 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <div>
 
-                <h2>BİRİM TAKİP</h2>
+                <h2>
+                    BİRİM TAKİP
+                </h2>
 
                 <span>
                     Yönetim Sistemi
@@ -93,12 +244,13 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <a
                 href="../dashboard.php"
-                class="sidebar-link">
+                class="sidebar-link"
+            >
 
                 <i
                     data-lucide="house"
-                    class="menu-icon">
-                </i>
+                    class="menu-icon"
+                ></i>
 
                 <span>
                     Ana Sayfa
@@ -111,12 +263,13 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <a
                 href="birimler.php"
-                class="sidebar-link">
+                class="sidebar-link"
+            >
 
                 <i
                     data-lucide="building-2"
-                    class="menu-icon">
-                </i>
+                    class="menu-icon"
+                ></i>
 
                 <span>
                     Birimler
@@ -129,12 +282,13 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <a
                 href="personeller.php"
-                class="sidebar-link active">
+                class="sidebar-link active"
+            >
 
                 <i
                     data-lucide="users"
-                    class="menu-icon">
-                </i>
+                    class="menu-icon"
+                ></i>
 
                 <span>
                     Personeller
@@ -147,12 +301,13 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <a
                 href="gorevler.php"
-                class="sidebar-link">
+                class="sidebar-link"
+            >
 
                 <i
                     data-lucide="clipboard-list"
-                    class="menu-icon">
-                </i>
+                    class="menu-icon"
+                ></i>
 
                 <span>
                     Görevler
@@ -165,19 +320,36 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <a
                 href="evraklar.php"
-                class="sidebar-link">
+                class="sidebar-link"
+            >
 
                 <i
                     data-lucide="file-text"
-                    class="menu-icon">
-                </i>
+                    class="menu-icon"
+                ></i>
 
                 <span>
                     Evraklar
                 </span>
 
             </a>
+<!-- PROFİL -->
 
+<a
+    href="../profil.php"
+    class="sidebar-link"
+>
+
+    <i
+        data-lucide="user-round"
+        class="menu-icon"
+    ></i>
+
+    <span>
+        Profilim
+    </span>
+
+</a>
         </nav>
 
 
@@ -187,12 +359,13 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <a
                 href="../logout.php"
-                class="sidebar-link logout">
+                class="sidebar-link logout"
+            >
 
                 <i
                     data-lucide="log-out"
-                    class="menu-icon">
-                </i>
+                    class="menu-icon"
+                ></i>
 
                 <span>
                     Çıkış Yap
@@ -218,7 +391,8 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                 <button
                     type="button"
-                    class="menu-button">
+                    class="menu-button"
+                >
 
                     <i data-lucide="menu"></i>
 
@@ -233,6 +407,8 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <div class="topbar-right">
 
+                <?php require_once __DIR__ . "/../includes/duyuru-sistemi.php"; ?>
+
 
                 <!-- TEMA -->
 
@@ -241,7 +417,8 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <button
                         type="button"
                         class="theme-button active"
-                        id="lightTheme">
+                        id="lightTheme"
+                    >
 
                         <i data-lucide="sun"></i>
 
@@ -251,7 +428,8 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <button
                         type="button"
                         class="theme-button"
-                        id="darkTheme">
+                        id="darkTheme"
+                    >
 
                         <i data-lucide="moon"></i>
 
@@ -271,11 +449,19 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                         <?php
 
-                        echo strtoupper(
-                            substr(
-                                $_SESSION["kullanici_adi"],
+                        $ilk_harf =
+                            mb_substr(
+                                $giris_yapan_kullanici["ad"]
+                                ?: $giris_yapan_kullanici["kullanici_adi"],
                                 0,
-                                1
+                                1,
+                                "UTF-8"
+                            );
+
+                        echo htmlspecialchars(
+                            mb_strtoupper(
+                                $ilk_harf,
+                                "UTF-8"
                             )
                         );
 
@@ -288,26 +474,22 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                         <strong>
 
-                            <?php
-
-                            echo htmlspecialchars(
-                                $_SESSION["kullanici_adi"]
-                            );
-
-                            ?>
+                            <?= htmlspecialchars(
+                                $kullanici_ad_soyad,
+                                ENT_QUOTES,
+                                "UTF-8"
+                            ) ?>
 
                         </strong>
 
 
                         <span>
 
-                            <?php
-
-                            echo htmlspecialchars(
-                                $_SESSION["rol"]
-                            );
-
-                            ?>
+                            <?= htmlspecialchars(
+                                $rol_etiketi,
+                                ENT_QUOTES,
+                                "UTF-8"
+                            ) ?>
 
                         </span>
 
@@ -316,8 +498,8 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                     <i
                         data-lucide="chevron-down"
-                        class="user-arrow">
-                    </i>
+                        class="user-arrow"
+                    ></i>
 
                 </div>
 
@@ -368,13 +550,19 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     </div>
 
 
-                    <div style="display: flex; gap: 10px;">
+                    <div
+                        style="
+                            display: flex;
+                            gap: 10px;
+                        "
+                    >
 
                         <!-- PERSONEL ARŞİVİ -->
 
                         <a
                             href="personel-arsiv.php"
-                            class="view-button">
+                            class="view-button"
+                        >
 
                             <i data-lucide="archive"></i>
 
@@ -387,7 +575,8 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                         <a
                             href="personel-ekle.php"
-                            class="view-button">
+                            class="view-button"
+                        >
 
                             <i data-lucide="plus"></i>
 
@@ -452,7 +641,25 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                 <?php $sira = 1; ?>
 
 
-                                <?php foreach ($personeller as $personel): ?>
+                                <?php foreach (
+                                    $personeller
+                                    as $personel
+                                ): ?>
+
+
+                                    <?php
+
+                                    $personelId =
+                                        (int) $personel["id"];
+
+                                    $gorev =
+                                        $gorevDurumlari[
+                                            $personelId
+                                        ]
+                                        ?? null;
+
+                                    ?>
+
 
                                     <tr>
 
@@ -461,11 +668,7 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                                         <td>
 
-                                            <?php
-
-                                            echo $sira;
-
-                                            ?>
+                                            <?= $sira ?>
 
                                         </td>
 
@@ -479,21 +682,18 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <div class="table-icon">
 
                                                     <i
-                                                        data-lucide="user">
-                                                    </i>
+                                                        data-lucide="user"
+                                                    ></i>
 
                                                 </div>
 
                                                 <span>
 
-                                                    <?php
-
-                                                    echo htmlspecialchars(
-                                                        $personel["ad"] . " " .
-                                                        $personel["soyad"]
-                                                    );
-
-                                                    ?>
+                                                    <?= htmlspecialchars(
+                                                        $personel["ad"]
+                                                        . " "
+                                                        . $personel["soyad"]
+                                                    ) ?>
 
                                                 </span>
 
@@ -506,13 +706,10 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                                         <td>
 
-                                            <?php
-
-                                            echo htmlspecialchars(
-                                                $personel["birim_adi"] ?? "-"
-                                            );
-
-                                            ?>
+                                            <?= htmlspecialchars(
+                                                $personel["birim_adi"]
+                                                ?? "-"
+                                            ) ?>
 
                                         </td>
 
@@ -521,13 +718,10 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                                         <td>
 
-                                            <?php
-
-                                            echo htmlspecialchars(
-                                                $personel["gorev"] ?? "-"
-                                            );
-
-                                            ?>
+                                            <?= htmlspecialchars(
+                                                $personel["gorev"]
+                                                ?? "-"
+                                            ) ?>
 
                                         </td>
 
@@ -536,13 +730,10 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                                         <td>
 
-                                            <?php
-
-                                            echo htmlspecialchars(
-                                                $personel["telefon"] ?? "-"
-                                            );
-
-                                            ?>
+                                            <?= htmlspecialchars(
+                                                $personel["telefon"]
+                                                ?? "-"
+                                            ) ?>
 
                                         </td>
 
@@ -551,13 +742,10 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                                         <td>
 
-                                            <?php
-
-                                            echo htmlspecialchars(
-                                                $personel["email"] ?? "-"
-                                            );
-
-                                            ?>
+                                            <?= htmlspecialchars(
+                                                $personel["email"]
+                                                ?? "-"
+                                            ) ?>
 
                                         </td>
 
@@ -572,10 +760,13 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <!-- DÜZENLE -->
 
                                                 <a
-                                                    href="personel-duzenle.php?id=<?php echo $personel["id"]; ?>"
-                                                    class="action-button edit">
+                                                    href="personel-duzenle.php?id=<?= $personel["id"] ?>"
+                                                    class="action-button edit"
+                                                >
 
-                                                    <i data-lucide="pencil"></i>
+                                                    <i
+                                                        data-lucide="pencil"
+                                                    ></i>
 
                                                     Düzenle
 
@@ -585,11 +776,14 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                                 <!-- ARŞİVLE -->
 
                                                 <a
-                                                    href="personel-arsivle.php?id=<?php echo $personel["id"]; ?>"
+                                                    href="personel-arsivle.php?id=<?= $personel["id"] ?>"
                                                     class="action-button delete"
-                                                    onclick="return confirm('Bu personeli arşivlemek istediğinize emin misiniz?');">
+                                                    onclick="return confirm('Bu personeli arşivlemek istediğinize emin misiniz?');"
+                                                >
 
-                                                    <i data-lucide="archive"></i>
+                                                    <i
+                                                        data-lucide="archive"
+                                                    ></i>
 
                                                     Arşivle
 
@@ -619,11 +813,12 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                                     <td
                                         colspan="7"
-                                        class="table-empty">
+                                        class="table-empty"
+                                    >
 
                                         <i
-                                            data-lucide="users">
-                                        </i>
+                                            data-lucide="users"
+                                        ></i>
 
                                         <span>
                                             Henüz kayıtlı personel bulunmuyor.
@@ -654,12 +849,12 @@ $personeller = $stmt->fetchAll(PDO::FETCH_ASSOC);
 </div>
 
 
-<!-- ================= JAVASCRIPT ================= -->
-
 <script src="../js/script.js"></script>
 
 <script>
+
     lucide.createIcons();
+
 </script>
 
 

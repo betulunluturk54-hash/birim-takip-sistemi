@@ -16,6 +16,44 @@ document.addEventListener("DOMContentLoaded", function () {
     const darkThemeButton =
         document.getElementById("darkTheme");
 
+    const notificationButton =
+        document.getElementById("notificationButton");
+
+    const notificationDropdown =
+        document.getElementById("notificationDropdown");
+
+
+    /* ============================================
+       BİLDİRİM MENÜSÜ
+    ============================================ */
+
+    if (notificationButton && notificationDropdown) {
+
+        notificationButton.addEventListener("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            notificationDropdown.classList.toggle("show");
+
+            /* Kullanıcı menüsünü kapat */
+            document
+                .querySelectorAll(".user-dropdown.show")
+                .forEach(function (menu) {
+                    menu.classList.remove("show");
+                });
+
+            document
+                .querySelectorAll(".user-area.open")
+                .forEach(function (area) {
+                    area.classList.remove("open");
+                });
+        });
+
+        notificationDropdown.addEventListener("click", function (event) {
+            event.stopPropagation();
+        });
+    }
+
 
     /* ============================================
        SIDEBAR AÇ / KAPAT
@@ -23,496 +61,181 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (menuButton && dashboard) {
 
-        menuButton.addEventListener(
-            "click",
-            function () {
+        menuButton.addEventListener("click", function () {
+            dashboard.classList.toggle("sidebar-collapsed");
 
-                dashboard.classList.toggle(
-                    "sidebar-collapsed"
-                );
-
-                localStorage.setItem(
-                    "sidebarCollapsed",
-                    dashboard.classList.contains(
-                        "sidebar-collapsed"
-                    )
-                );
-
-            }
-        );
-
+            localStorage.setItem(
+                "sidebarCollapsed",
+                dashboard.classList.contains("sidebar-collapsed")
+            );
+        });
     }
 
+    const sidebarState = localStorage.getItem("sidebarCollapsed");
 
-    const sidebarState =
-        localStorage.getItem(
-            "sidebarCollapsed"
-        );
-
-
-    if (
-        sidebarState === "true" &&
-        dashboard
-    ) {
-
-        dashboard.classList.add(
-            "sidebar-collapsed"
-        );
-
+    if (sidebarState === "true" && dashboard) {
+        dashboard.classList.add("sidebar-collapsed");
     }
 
 
     /* ============================================
-       TEMA
+       TEMA YÖNETİMİ
     ============================================ */
 
     function applyTheme(theme) {
-
         if (theme === "dark") {
+            document.body.classList.add("dark-mode");
 
-            document.body.classList.add(
-                "dark-mode"
-            );
-
-
-            if (darkThemeButton) {
-
-                darkThemeButton.classList.add(
-                    "active"
-                );
-
-            }
-
-
-            if (lightThemeButton) {
-
-                lightThemeButton.classList.remove(
-                    "active"
-                );
-
-            }
-
+            if (darkThemeButton) darkThemeButton.classList.add("active");
+            if (lightThemeButton) lightThemeButton.classList.remove("active");
         } else {
+            document.body.classList.remove("dark-mode");
 
-            document.body.classList.remove(
-                "dark-mode"
-            );
-
-
-            if (lightThemeButton) {
-
-                lightThemeButton.classList.add(
-                    "active"
-                );
-
-            }
-
-
-            if (darkThemeButton) {
-
-                darkThemeButton.classList.remove(
-                    "active"
-                );
-
-            }
-
+            if (lightThemeButton) lightThemeButton.classList.add("active");
+            if (darkThemeButton) darkThemeButton.classList.remove("active");
         }
 
-
-        localStorage.setItem(
-            "theme",
-            theme
-        );
-
+        localStorage.setItem("theme", theme);
     }
 
-
-    const savedTheme =
-        localStorage.getItem(
-            "theme"
-        );
-
+    const savedTheme = localStorage.getItem("theme");
 
     if (savedTheme === "dark") {
-
         applyTheme("dark");
-
     } else {
-
         applyTheme("light");
-
     }
-
-
-    /* ============================================
-       AÇIK TEMA
-    ============================================ */
 
     if (lightThemeButton) {
-
-        lightThemeButton.addEventListener(
-            "click",
-            function (event) {
-
-                event.preventDefault();
-
-                applyTheme("light");
-
-            }
-        );
-
+        lightThemeButton.addEventListener("click", function (event) {
+            event.preventDefault();
+            applyTheme("light");
+        });
     }
 
-
-    /* ============================================
-       KOYU TEMA
-    ============================================ */
-
     if (darkThemeButton) {
-
-        darkThemeButton.addEventListener(
-            "click",
-            function (event) {
-
-                event.preventDefault();
-
-                applyTheme("dark");
-
-            }
-        );
-
+        darkThemeButton.addEventListener("click", function (event) {
+            event.preventDefault();
+            applyTheme("dark");
+        });
     }
 
 
     /* ============================================
        KULLANICI MENÜSÜ
-       TÜM ADMIN + PERSONEL SAYFALARINDA
-       OTOMATİK OLARAK OLUŞTURULUR
     ============================================ */
 
-    const userAreas =
-        document.querySelectorAll(
-            ".user-area"
-        );
-
+    const userAreas = document.querySelectorAll(".user-area");
 
     userAreas.forEach(function (userArea) {
 
-        /*
-         * Sayfada sidebar'daki mevcut
-         * Çıkış Yap bağlantısını bul.
-         *
-         * Böylece:
-         *
-         * Admin:
-         * logout.php
-         *
-         * Pages:
-         * ../logout.php
-         *
-         * otomatik olarak doğru alınır.
-         */
+        const sidebarLogout = document.querySelector(".sidebar .logout");
+        let logoutHref = "logout.php";
 
-        const sidebarLogout =
-            document.querySelector(
-                ".sidebar .logout"
-            );
-
-
-        let logoutHref =
-            "logout.php";
-
-
-        if (
-            sidebarLogout &&
-            sidebarLogout.getAttribute("href")
-        ) {
-
-            logoutHref =
-                sidebarLogout.getAttribute("href");
-
+        if (sidebarLogout && sidebarLogout.getAttribute("href")) {
+            logoutHref = sidebarLogout.getAttribute("href");
         }
 
-
-        /* -----------------------------------------
-           WRAPPER
-        ----------------------------------------- */
-
-        let wrapper =
-            userArea.closest(
-                ".user-dropdown-wrapper"
-            );
-
-
-        /*
-         * Eğer sayfada wrapper yoksa
-         * otomatik oluştur.
-         */
+        let wrapper = userArea.closest(".user-dropdown-wrapper");
 
         if (!wrapper) {
-
-            wrapper =
-                document.createElement(
-                    "div"
-                );
-
-            wrapper.className =
-                "user-dropdown-wrapper";
-
-
-            userArea.parentNode.insertBefore(
-                wrapper,
-                userArea
-            );
-
-
-            wrapper.appendChild(
-                userArea
-            );
-
+            wrapper = document.createElement("div");
+            wrapper.className = "user-dropdown-wrapper";
+            userArea.parentNode.insertBefore(wrapper, userArea);
+            wrapper.appendChild(userArea);
         }
 
-
-        /* -----------------------------------------
-           AŞAĞI OK
-        ----------------------------------------- */
-
-        let arrow =
-            userArea.querySelector(
-                ".user-arrow"
-            );
-
-
-        /*
-         * Eğer aşağı ok yoksa otomatik ekle.
-         */
+        let arrow = userArea.querySelector(".user-arrow");
 
         if (!arrow) {
-
-            arrow =
-                document.createElement(
-                    "i"
-                );
-
-            arrow.setAttribute(
-                "data-lucide",
-                "chevron-down"
-            );
-
-            arrow.className =
-                "user-arrow";
-
-
-            userArea.appendChild(
-                arrow
-            );
-
+            arrow = document.createElement("i");
+            arrow.setAttribute("data-lucide", "chevron-down");
+            arrow.className = "user-arrow";
+            userArea.appendChild(arrow);
         }
 
-
-        /* -----------------------------------------
-           DROPDOWN
-        ----------------------------------------- */
-
-        let dropdown =
-            wrapper.querySelector(
-                ".user-dropdown"
-            );
-
-
-        /*
-         * Eğer dropdown yoksa
-         * otomatik oluştur.
-         */
+        let dropdown = wrapper.querySelector(".user-dropdown");
 
         if (!dropdown) {
+            dropdown = document.createElement("div");
+            dropdown.className = "user-dropdown";
 
-            dropdown =
-                document.createElement(
-                    "div"
-                );
+            const link = document.createElement("a");
+            link.href = logoutHref;
+            link.className = "user-dropdown-item";
 
-            dropdown.className =
-                "user-dropdown";
+            const icon = document.createElement("i");
+            icon.setAttribute("data-lucide", "log-out");
 
+            const text = document.createElement("span");
+            text.textContent = "Çıkış Yap";
 
-            const link =
-                document.createElement(
-                    "a"
-                );
-
-            link.href =
-                logoutHref;
-
-            link.className =
-                "user-dropdown-item";
-
-
-            const icon =
-                document.createElement(
-                    "i"
-                );
-
-            icon.setAttribute(
-                "data-lucide",
-                "log-out"
-            );
-
-
-            const text =
-                document.createElement(
-                    "span"
-                );
-
-            text.textContent =
-                "Çıkış Yap";
-
-
-            link.appendChild(
-                icon
-            );
-
-            link.appendChild(
-                text
-            );
-
-
-            dropdown.appendChild(
-                link
-            );
-
-
-            wrapper.appendChild(
-                dropdown
-            );
-
+            link.appendChild(icon);
+            link.appendChild(text);
+            dropdown.appendChild(link);
+            wrapper.appendChild(dropdown);
         }
 
+        /* Tıklama Olayı */
+        if (!userArea.dataset.dropdownReady) {
+            userArea.dataset.dropdownReady = "true";
 
-        /* -----------------------------------------
-           AÇ / KAPAT
-        ----------------------------------------- */
+            userArea.addEventListener("click", function (event) {
+                event.stopPropagation();
 
-        if (
-            !userArea.dataset.dropdownReady
-        ) {
-
-            userArea.dataset.dropdownReady =
-                "true";
-
-
-            userArea.addEventListener(
-                "click",
-                function (event) {
-
-                    event.stopPropagation();
-
-
-                    /*
-                     * Diğer kullanıcı menülerini kapat
-                     */
-
-                    document
-                        .querySelectorAll(
-                            ".user-dropdown.show"
-                        )
-                        .forEach(
-                            function (menu) {
-
-                                if (
-                                    menu !== dropdown
-                                ) {
-
-                                    menu.classList.remove(
-                                        "show"
-                                    );
-
-                                }
-
-                            }
-                        );
-
-
-                    dropdown.classList.toggle(
-                        "show"
-                    );
-
-
-                    userArea.classList.toggle(
-                        "open"
-                    );
-
+                /* Bildirim menüsü açıksa kapat */
+                if (notificationDropdown) {
+                    notificationDropdown.classList.remove("show");
                 }
-            );
 
+                /* Diğer kullanıcı menülerini kapat */
+                document
+                    .querySelectorAll(".user-dropdown.show")
+                    .forEach(function (menu) {
+                        if (menu !== dropdown) {
+                            menu.classList.remove("show");
+                        }
+                    });
 
-            dropdown.addEventListener(
-                "click",
-                function (event) {
+                dropdown.classList.toggle("show");
+                userArea.classList.toggle("open");
+            });
 
-                    event.stopPropagation();
-
-                }
-            );
-
+            dropdown.addEventListener("click", function (event) {
+                event.stopPropagation();
+            });
         }
-
     });
 
 
     /* ============================================
-       SAYFADA BAŞKA YERE TIKLANINCA
-       TÜM MENÜLERİ KAPAT
+       SAYFA DIŞINA TIKLANINCA MENÜLERİ KAPAT
     ============================================ */
 
-    document.addEventListener(
-        "click",
-        function () {
-
-            document
-                .querySelectorAll(
-                    ".user-dropdown.show"
-                )
-                .forEach(
-                    function (menu) {
-
-                        menu.classList.remove(
-                            "show"
-                        );
-
-                    }
-                );
-
-
-            document
-                .querySelectorAll(
-                    ".user-area.open"
-                )
-                .forEach(
-                    function (area) {
-
-                        area.classList.remove(
-                            "open"
-                        );
-
-                    }
-                );
-
+    document.addEventListener("click", function () {
+        if (notificationDropdown) {
+            notificationDropdown.classList.remove("show");
         }
-    );
+
+        document
+            .querySelectorAll(".user-dropdown.show")
+            .forEach(function (menu) {
+                menu.classList.remove("show");
+            });
+
+        document
+            .querySelectorAll(".user-area.open")
+            .forEach(function (area) {
+                area.classList.remove("open");
+            });
+    });
 
 
     /* ============================================
-       LUCIDE
-       Script hazırsa yeni eklenen ikonları oluştur
+       LUCIDE İKONLARI OLUŞTUR
     ============================================ */
 
-    if (
-        typeof lucide !== "undefined"
-    ) {
-
+    if (typeof lucide !== "undefined") {
         lucide.createIcons();
-
     }
-
 });
